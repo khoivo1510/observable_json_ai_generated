@@ -282,30 +282,92 @@ void test_path_filtering() {
         all_callbacks++;
     });
     
-    // Path filter for config - let's test if path_filter function exists
-    try {
-        auto config_token = obs.subscribe([&](const json& /*new_val*/, const std::string& /*path*/, const json& /*old_val*/) {
-            config_callbacks++;
-        });
-        
-        // Path filter for user
-        auto user_token = obs.subscribe([&](const json& /*new_val*/, const std::string& /*path*/, const json& /*old_val*/) {
-            user_callbacks++;
-        });
-        
-        obs.set("config/database", "localhost");
-        obs.set("user/name", "John");
-        obs.set("other/value", "test");
-        obs.set("config/port", 5432);
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        
-        TestFramework::assert_equals(4, all_callbacks.load(), "All callbacks triggered");
-        TestFramework::assert_test(true, "Path filtering test setup completed");
-        
-    } catch (const std::exception& e) {
-        TestFramework::assert_test(true, "Path filtering not supported - basic callback test passed");
-    }
+    // Test observing specific path "config/test" for all types of changes
+    std::atomic<int> config_test_callbacks{0};
+    std::string last_change_type;
+    json last_old_value;
+    json last_new_value;
+    
+    // Subscribe to monitor "config/test" path changes
+    auto config_test_token = obs.subscribe([&](const json& new_val, const std::string& path, const json& old_val) {
+        // Only track changes to config/test and its children
+        if (path.find("config/test") == 0) {
+            config_test_callbacks++;
+            last_new_value = new_val;
+            last_old_value = old_val;
+            
+            // Determine change type
+            if (old_val.is_null() && !new_val.is_null()) {
+                last_change_type = "ADDED";
+            } else if (!old_val.is_null() && new_val.is_null()) {
+                last_change_type = "REMOVED";
+            } else if (old_val != new_val) {
+                last_change_type = "MODIFIED";
+            }
+            
+            std::cout << "🔍 Path change detected: " << path 
+                      << " | Type: " << last_change_type 
+                      << " | Old: " << old_val.dump()
+                      << " | New: " << new_val.dump() << std::endl;
+        }
+    });
+    
+    std::cout << "📋 Testing config/test path monitoring..." << std::endl;
+    
+    // Test 1: ADD - Create config/test with initial value
+    obs.set("config/test", "initial_value");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    TestFramework::assert_equals(1, config_test_callbacks.load(), "ADD - Initial value added");
+    TestFramework::assert_equals(std::string("ADDED"), last_change_type, "ADD - Change type detected");
+    TestFramework::assert_equals(std::string("initial_value"), last_new_value.get<std::string>(), "ADD - New value correct");
+    
+    // Test 2: MODIFY - Change value
+    obs.set("config/test", "modified_value");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    TestFramework::assert_equals(2, config_test_callbacks.load(), "MODIFY - Value modified");
+    TestFramework::assert_equals(std::string("MODIFIED"), last_change_type, "MODIFY - Change type detected");
+    TestFramework::assert_equals(std::string("modified_value"), last_new_value.get<std::string>(), "MODIFY - New value correct");
+    
+    // Test 3: ADD CHILD - Make config/test an object with children
+    obs.set("config/test", json::object({
+        {"database", "localhost"},
+        {"port", 5432},
+        {"enabled", true}
+    }));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    TestFramework::assert_equals(3, config_test_callbacks.load(), "ADD CHILD - Object with children added");
+    
+    // Test 4: MODIFY CHILD - Change a child value
+    obs.set("config/test/database", "remote_host");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    TestFramework::assert_equals(4, config_test_callbacks.load(), "MODIFY CHILD - Child value modified");
+    TestFramework::assert_equals(std::string("remote_host"), last_new_value.get<std::string>(), "MODIFY CHILD - Child value correct");
+    
+    // Test 5: ADD NEW CHILD - Add a new child
+    obs.set("config/test/timeout", 30);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    TestFramework::assert_equals(5, config_test_callbacks.load(), "ADD NEW CHILD - New child added");
+    TestFramework::assert_equals(30, last_new_value.get<int>(), "ADD NEW CHILD - New child value correct");
+    
+    // Test 6: REMOVE CHILD - Remove a child
+    obs.remove("config/test/port");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    TestFramework::assert_equals(6, config_test_callbacks.load(), "REMOVE CHILD - Child removed");
+    TestFramework::assert_equals(std::string("REMOVED"), last_change_type, "REMOVE CHILD - Change type detected");
+    
+    // Test 7: REMOVE ENTIRE PATH - Remove config/test completely
+    obs.remove("config/test");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    TestFramework::assert_equals(7, config_test_callbacks.load(), "REMOVE - Entire path removed");
+    TestFramework::assert_equals(std::string("REMOVED"), last_change_type, "REMOVE - Change type detected");
+    
+    // Test that other paths don't trigger our callback
+    obs.set("config/other", "should_not_trigger");
+    obs.set("other/path", "should_not_trigger");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    TestFramework::assert_equals(7, config_test_callbacks.load(), "Other paths don't trigger config/test callback");
+    
+    std::cout << "✅ All config/test path monitoring tests passed!" << std::endl;
 }
 
 // Test Suite: Async Operations
