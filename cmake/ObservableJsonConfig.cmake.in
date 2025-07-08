@@ -1,0 +1,25 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# Find required dependencies
+find_dependency(nlohmann_json REQUIRED)
+find_dependency(Threads REQUIRED)
+
+# Include the targets file
+include("${CMAKE_CURRENT_LIST_DIR}/ObservableJsonTargets.cmake")
+
+check_required_components(ObservableJson)
+
+# Set convenience variables
+set(ObservableJson_FOUND TRUE)
+set(ObservableJson_VERSION @PROJECT_VERSION@)
+set(ObservableJson_INCLUDE_DIRS "@CMAKE_INSTALL_FULL_INCLUDEDIR@")
+
+# Provide some helpful information
+if(NOT TARGET ObservableJson::observable_json)
+    message(FATAL_ERROR "ObservableJson::observable_json target not found!")
+endif()
+
+message(STATUS "Found ObservableJson: ${ObservableJson_VERSION}")
+message(STATUS "  Include directories: ${ObservableJson_INCLUDE_DIRS}")
