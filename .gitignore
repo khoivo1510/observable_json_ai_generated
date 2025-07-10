@@ -1,1 +1,95 @@
-build
+# Build directories
+build*/
+_build/
+build_analysis/
+helgrind_test/
+test_*/
+perf_*/
+out/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+!cmake/
+
+# Executables
+*.exe
+*.out
+*.app
+*_test
+*_demo
+*_example
+comprehensive_test
+basic_example
+multi_backend_demo
+performance_comparison
+
+# Object files
+*.o
+*.obj
+*.lo
+*.slo
+*.ko
+*.elf
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Package files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+*.db
+
+# IDE and editor files
+.vscode/launch.json
+.vscode/c_cpp_properties.json
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# Test outputs
+test_output.txt
+valgrind_output.txt
+helgrind_output.txt
+memory_test.cpp
+thread_safety_test.cpp
+*.test
