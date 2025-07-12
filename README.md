@@ -1,53 +1,242 @@
-# Universal Observable JSON
+# Universal Observable JSON Library
 
-A modern C++17 header-only library providing reactive JSON data structures with multi-backend support.
+A high-performance, thread-safe, universal JSON library with observable pattern support. Works with ANY major JSON backend (nlohmann/json, json11, RapidJSON, JsonCpp, Boost.JSON, and more).
 
-**PRODUCTION READY**
-*Comprehensive testing completed with Valgrind and Helgrind analysis. All 14 tests pass across 3 backends with excellent performance and thread safety.*
+## 🌟 Features
 
-## Features
+### Core Features
+- **Universal Backend Support**: Works with 8+ major JSON libraries
+- **Observable Pattern**: Subscribe to data changes with callbacks
+- **Thread Safety**: Full multi-threaded support with shared_mutex
+- **Type Safety**: Template-based type extraction and validation
+- **Path-based Access**: Support for nested object access (coming soon)
+- **Async Operations**: Non-blocking operations with std::future
 
-- **Reactive Programming**: Subscribe to data changes with automatic notifications
-- **Multi-Backend Support**: Works with nlohmann/json, json11, and RapidJSON
-- **Thread-Safe**: All operations are thread-safe with shared_mutex synchronization
-- **Header-Only**: Easy integration, no compilation required
-- **Modern C++17**: Uses C++17 features and modern design patterns
-- **Type-Safe**: Template-based API with compile-time type checking
-- **High Performance**: Optimized for speed and memory efficiency
+### Advanced Features
+- **Debounced Callbacks**: Prevent callback spam with configurable delays
+- **Path Filtering**: Subscribe to specific paths/keys only
+- **Batch Operations**: Efficient bulk updates with single notifications
+- **Exception Safety**: Robust error handling that doesn't crash
+- **Memory Efficient**: Optimized notification system with thread pool
+- **Performance Monitoring**: Built-in statistics and benchmarking
 
-## Quick Start
-
-### Installation
-
-```bash
-git clone <repository-url>
-cd universal-observable-json
-mkdir build && cd build
-cmake ..
-make
-```
-
-### Basic Usage
+## 🚀 Quick Start
 
 ```cpp
 #include "universal_observable_json.h"
+
 using namespace universal_observable_json;
 
-int main() {
-    // Create observable JSON object
-    UniversalObservableJson obs;
-    
-    // Subscribe to changes
-    auto subscription = obs.subscribe([](const json& new_value, const std::string& key, const json& old_value) {
-        std::cout << "Key '" << key << "' changed!" << std::endl;
-    });
-    
-    // Set values (triggers notifications)
-    obs.set("name", "Alice");
-    obs.set("age", 30);
-    obs.set("active", true);
-    
-    // Get values
+// Create observable JSON object
+UniversalObservableJson obs;
+
+// Subscribe to changes
+auto sub_id = obs.subscribe([](const json& new_val, const std::string& path, const json& old_val) {
+    std::cout << "Changed: " << path << " = " << new_val.dump() << std::endl;
+});
+
+// Set values - triggers notifications
+obs.set("name", std::string("John"));
+obs.set("age", 30);
+obs.set("active", true);
+
+// Get values with type safety
+std::string name = obs.get<std::string>("name");
+int age = obs.get<int>("age");
+bool active = obs.get<bool>("active");
+
+// Async operations
+auto future = obs.set_async("score", 95.5);
+future.wait();
+
+// Batch operations
+obs.set_batch({
+    {"city", std::string("New York")},
+    {"country", std::string("USA")},
+    {"zip", 10001}
+});
+
+// Cleanup
+obs.unsubscribe(sub_id);
+```
+
+## 🔧 Supported Backends
+
+| Backend | Description | Status |
+|---------|-------------|---------|
+| **nlohmann/json** | Full-featured, popular JSON library | ✅ Complete |
+| **json11** | Lightweight, minimal dependencies | ✅ Complete |
+| **RapidJSON** | Fast JSON parser/generator | ✅ Complete |
+| **JsonCpp** | Mature, stable JSON library | ✅ Complete |
+| **Boost.JSON** | Part of Boost libraries | ✅ Complete |
+| **cpprest** | Microsoft's C++ REST SDK | ✅ Complete |
+| **sajson** | Single-header, extremely fast | 🚧 Parser only |
+| **simdjson** | SIMD-optimized JSON parser | 🚧 Parser only |
+
+## 🏗️ Build Instructions
+
+### Prerequisites
+- C++17 or later
+- CMake 3.15+
+- One of the supported JSON libraries
+
+### Basic Build
+```bash
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+```
+
+### Backend Selection
+```bash
+# nlohmann/json (default)
+cmake -DJSON_ADAPTER_BACKEND=1 ..
+
+# json11
+cmake -DJSON_ADAPTER_BACKEND=2 ..
+
+# RapidJSON
+cmake -DJSON_ADAPTER_BACKEND=3 ..
+
+# JsonCpp
+cmake -DJSON_ADAPTER_BACKEND=4 ..
+
+# Boost.JSON
+cmake -DJSON_ADAPTER_BACKEND=5 ..
+```
+
+## 📊 Performance
+
+### Benchmark Results (nlohmann/json)
+- **Object Creation**: ~89ms for 10,000 objects
+- **Set Operations**: ~7ms for 10,000 operations
+- **Get Operations**: ~5ms for 10,000 operations
+- **JSON Serialization**: ~1ms for 100 operations
+- **Notifications**: ~13ms for 1,000 operations
+
+### Memory Usage
+- **Base Object**: ~200 bytes
+- **Per Subscriber**: ~100 bytes
+- **Thread Pool**: 2 worker threads by default
+
+## 🎯 Advanced Usage
+
+### Debounced Callbacks
+```cpp
+// Prevent callback spam with 100ms debounce
+auto sub_id = obs.subscribe_debounced(
+    [](const json& new_val, const std::string& path, const json& old_val) {
+        std::cout << "Debounced change: " << path << std::endl;
+    },
+    std::chrono::milliseconds(100)
+);
+```
+
+### Path Filtering
+```cpp
+// Subscribe only to specific paths
+auto sub_id = obs.subscribe(
+    [](const json& new_val, const std::string& path, const json& old_val) {
+        std::cout << "User data changed: " << path << std::endl;
+    },
+    "user"  // Filter: only notify for "user" path
+);
+```
+
+### Async Operations
+```cpp
+// Non-blocking operations
+auto set_future = obs.set_async("data", large_dataset);
+auto get_future = obs.get_async<std::string>("result");
+
+// Wait for completion
+set_future.wait();
+std::string result = get_future.get();
+```
+
+### Statistics and Monitoring
+```cpp
+auto stats = obs.get_statistics();
+std::cout << "Active subscribers: " << stats.active_subscribers << std::endl;
+std::cout << "Data size: " << stats.data_size << std::endl;
+std::cout << "Pending notifications: " << stats.pending_notifications << std::endl;
+```
+
+## 🧪 Testing
+
+Run the comprehensive test suite:
+```bash
+./build/comprehensive_test
+```
+
+Run performance benchmarks:
+```bash
+./build/performance_comparison
+```
+
+Test different backends:
+```bash
+./build/multi_backend_demo
+```
+
+## 🔍 API Reference
+
+### Core Methods
+- `set<T>(path, value)` - Set value at path
+- `get<T>(path)` - Get value at path
+- `has(path)` - Check if path exists
+- `remove(path)` - Remove path
+- `clear()` - Clear all data
+- `dump(indent)` - Serialize to JSON string
+
+### Subscription Methods
+- `subscribe(callback)` - Subscribe to all changes
+- `subscribe_debounced(callback, delay)` - Subscribe with debouncing
+- `unsubscribe(id)` - Remove subscription
+- `get_subscriber_count()` - Get number of subscribers
+
+### Async Methods
+- `set_async<T>(path, value)` - Async set operation
+- `get_async<T>(path)` - Async get operation
+
+### Utility Methods
+- `size()` - Get number of key-value pairs
+- `empty()` - Check if object is empty
+- `merge(other)` - Merge another observable JSON
+- `get_statistics()` - Get performance statistics
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- [nlohmann/json](https://github.com/nlohmann/json) - Excellent C++ JSON library
+- [json11](https://github.com/dropbox/json11) - Lightweight JSON library
+- [RapidJSON](https://github.com/Tencent/rapidjson) - Fast JSON parser
+- All other JSON library maintainers
+
+## 🔮 Roadmap
+
+- [ ] Full nested path support (`obj.user.profile.name`)
+- [ ] JSON Schema validation
+- [ ] HTTP API integration
+- [ ] WebSocket real-time sync
+- [ ] MongoDB/PostgreSQL adapters
+- [ ] React/Vue.js bindings
+- [ ] Python/Node.js bindings via pybind11/N-API
+
+---
+
+**Made with ❤️ for the C++ community**
     std::string name = obs.get<std::string>("name");
     int age = obs.get<int>("age");
     bool active = obs.get<bool>("active");

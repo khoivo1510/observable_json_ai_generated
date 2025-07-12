@@ -5,6 +5,7 @@ build_analysis/
 helgrind_test/
 test_*/
 perf_*/
+valgrind_*/
 out/
 
 # CMake generated files

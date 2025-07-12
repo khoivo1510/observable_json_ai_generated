@@ -95,6 +95,24 @@ namespace json_adapter {
     inline json make_array() { return json::array(); }
     inline json make_object() { return json::object(); }
     
+    // Key manipulation functions
+    inline void set_member(json& obj, const std::string& key, const json& value) {
+        obj[key] = value;
+    }
+    
+    inline void remove_member(json& obj, const std::string& key) {
+        obj.erase(key);
+    }
+    
+    // Array manipulation functions
+    inline void append_array(json& arr, const json& value) {
+        arr.push_back(value);
+    }
+    
+    inline void clear_array(json& arr) {
+        arr.clear();
+    }
+    
 #elif JSON_ADAPTER_BACKEND == JSON11
     using json = json11::Json;
     
@@ -157,6 +175,30 @@ namespace json_adapter {
     inline json make_string(const std::string& value) { return json(value); }
     inline json make_array() { return json::array(); }
     inline json make_object() { return json::object(); }
+    
+    // Key manipulation functions
+    inline void set_member(json& obj, const std::string& key, const json& value) {
+        auto obj_items = obj.object_items();
+        obj_items[key] = value;
+        obj = json(obj_items);
+    }
+    
+    inline void remove_member(json& obj, const std::string& key) {
+        auto obj_items = obj.object_items();
+        obj_items.erase(key);
+        obj = json(obj_items);
+    }
+    
+    // Array manipulation functions
+    inline void append_array(json& arr, const json& value) {
+        auto arr_items = arr.array_items();
+        arr_items.push_back(value);
+        arr = json(arr_items);
+    }
+    
+    inline void clear_array(json& arr) {
+        arr = json::array();
+    }
     
 #elif JSON_ADAPTER_BACKEND == RAPIDJSON
     // RapidJSON wrapper class for universal interface
@@ -289,6 +331,26 @@ namespace json_adapter {
     inline json make_array() { json j; j.doc.SetArray(); return j; }
     inline json make_object() { json j; j.doc.SetObject(); return j; }
     
+    // Key manipulation functions
+    inline void set_member(json& obj, const std::string& key, const json& value) {
+        obj.set_member(key, value.doc);
+    }
+    
+    inline void remove_member(json& obj, const std::string& key) {
+        obj.remove_member(key);
+    }
+    
+    // Array manipulation functions
+    inline void append_array(json& arr, const json& value) {
+        rapidjson::Value v;
+        v.CopyFrom(value.doc, arr.doc.GetAllocator());
+        arr.doc.PushBack(v, arr.doc.GetAllocator());
+    }
+    
+    inline void clear_array(json& arr) {
+        arr.doc.SetArray();
+    }
+    
 #elif JSON_ADAPTER_BACKEND == JSONCPP
     using json = Json::Value;
     
@@ -350,6 +412,194 @@ namespace json_adapter {
     inline json make_string(const std::string& value) { return Json::Value(value); }
     inline json make_array() { return Json::Value(Json::arrayValue); }
     inline json make_object() { return Json::Value(Json::objectValue); }
+    
+    // Key manipulation functions
+    inline void set_member(json& obj, const std::string& key, const json& value) {
+        obj[key] = value;
+    }
+    
+    inline void remove_member(json& obj, const std::string& key) {
+        obj.removeMember(key);
+    }
+    
+    // Array manipulation functions
+    inline void append_array(json& arr, const json& value) {
+        arr.append(value);
+    }
+    
+    inline void clear_array(json& arr) {
+        arr.clear();
+    }
+    
+#elif JSON_ADAPTER_BACKEND == BOOST_JSON
+    using json = boost::json::value;
+    
+    // Parse function for Boost.JSON
+    inline json parse(const std::string& json_str) {
+        boost::json::error_code ec;
+        auto result = boost::json::parse(json_str, ec);
+        if (ec) {
+            throw std::runtime_error("JSON parse error: " + ec.message());
+        }
+        return result;
+    }
+    
+    // Dump function for Boost.JSON
+    inline std::string dump(const json& j, int indent = -1) {
+        if (indent >= 0) {
+            return serialize(j);  // Boost.JSON doesn't have built-in pretty printing
+        } else {
+            return serialize(j);
+        }
+    }
+    
+    // Type checking functions
+    inline bool is_null(const json& j) { return j.is_null(); }
+    inline bool is_bool(const json& j) { return j.is_bool(); }
+    inline bool is_number(const json& j) { return j.is_number(); }
+    inline bool is_string(const json& j) { return j.is_string(); }
+    inline bool is_array(const json& j) { return j.is_array(); }
+    inline bool is_object(const json& j) { return j.is_object(); }
+    
+    // Value extraction
+    inline bool get_bool(const json& j) { return j.as_bool(); }
+    inline int get_int(const json& j) { return static_cast<int>(j.as_int64()); }
+    inline double get_double(const json& j) { return j.as_double(); }
+    inline std::string get_string(const json& j) { return std::string(j.as_string()); }
+    
+    // Array operations
+    inline size_t array_size(const json& j) { return j.as_array().size(); }
+    inline json array_at(const json& j, size_t index) { 
+        auto& arr = j.as_array();
+        if (index >= arr.size()) throw std::out_of_range("Array index out of bounds");
+        return arr[index];
+    }
+    
+    // Object operations
+    inline bool has_key(const json& j, const std::string& key) { 
+        return j.as_object().contains(key);
+    }
+    inline json object_at(const json& j, const std::string& key) { 
+        auto& obj = j.as_object();
+        auto it = obj.find(key);
+        if (it == obj.end()) throw std::out_of_range("Key not found: " + key);
+        return it->value();
+    }
+    
+    // Construction functions
+    inline json make_null() { return boost::json::value(); }
+    inline json make_bool(bool value) { return boost::json::value(value); }
+    inline json make_int(int value) { return boost::json::value(value); }
+    inline json make_double(double value) { return boost::json::value(value); }
+    inline json make_string(const std::string& value) { return boost::json::value(value); }
+    inline json make_array() { return boost::json::array(); }
+    inline json make_object() { return boost::json::object(); }
+    
+    // Key manipulation functions
+    inline void set_member(json& obj, const std::string& key, const json& value) {
+        obj.as_object()[key] = value;
+    }
+    
+    inline void remove_member(json& obj, const std::string& key) {
+        obj.as_object().erase(key);
+    }
+    
+    // Array manipulation functions
+    inline void append_array(json& arr, const json& value) {
+        arr.as_array().push_back(value);
+    }
+    
+    inline void clear_array(json& arr) {
+        arr.as_array().clear();
+    }
+    
+#elif JSON_ADAPTER_BACKEND == SAJSON
+    // Note: sajson is primarily a parser, not a full JSON library
+    // This would need a more complex wrapper
+    #error "sajson backend not fully implemented - it's primarily a parser"
+    
+#elif JSON_ADAPTER_BACKEND == SIMDJSON
+    // Note: simdjson is primarily a fast parser, not a full JSON library
+    // This would need a more complex wrapper
+    #error "simdjson backend not fully implemented - it's primarily a fast parser"
+    
+#elif JSON_ADAPTER_BACKEND == CPPREST
+    using json = web::json::value;
+    
+    // Parse function for C++ REST SDK
+    inline json parse(const std::string& json_str) {
+        std::stringstream ss(json_str);
+        web::json::value result;
+        ss >> result;
+        return result;
+    }
+    
+    // Dump function for C++ REST SDK
+    inline std::string dump(const json& j, int indent = -1) {
+        std::stringstream ss;
+        j.serialize(ss);
+        return ss.str();
+    }
+    
+    // Type checking functions
+    inline bool is_null(const json& j) { return j.is_null(); }
+    inline bool is_bool(const json& j) { return j.is_boolean(); }
+    inline bool is_number(const json& j) { return j.is_number(); }
+    inline bool is_string(const json& j) { return j.is_string(); }
+    inline bool is_array(const json& j) { return j.is_array(); }
+    inline bool is_object(const json& j) { return j.is_object(); }
+    
+    // Value extraction
+    inline bool get_bool(const json& j) { return j.as_bool(); }
+    inline int get_int(const json& j) { return j.as_integer(); }
+    inline double get_double(const json& j) { return j.as_double(); }
+    inline std::string get_string(const json& j) { return j.as_string(); }
+    
+    // Array operations
+    inline size_t array_size(const json& j) { return j.as_array().size(); }
+    inline json array_at(const json& j, size_t index) { 
+        auto& arr = j.as_array();
+        if (index >= arr.size()) throw std::out_of_range("Array index out of bounds");
+        return arr[index];
+    }
+    
+    // Object operations
+    inline bool has_key(const json& j, const std::string& key) { 
+        return j.as_object().find(utility::conversions::to_string_t(key)) != j.as_object().end();
+    }
+    inline json object_at(const json& j, const std::string& key) { 
+        auto& obj = j.as_object();
+        auto it = obj.find(utility::conversions::to_string_t(key));
+        if (it == obj.end()) throw std::out_of_range("Key not found: " + key);
+        return it->second;
+    }
+    
+    // Construction functions
+    inline json make_null() { return web::json::value::null(); }
+    inline json make_bool(bool value) { return web::json::value::boolean(value); }
+    inline json make_int(int value) { return web::json::value::number(value); }
+    inline json make_double(double value) { return web::json::value::number(value); }
+    inline json make_string(const std::string& value) { return web::json::value::string(utility::conversions::to_string_t(value)); }
+    inline json make_array() { return web::json::value::array(); }
+    inline json make_object() { return web::json::value::object(); }
+    
+    // Key manipulation functions
+    inline void set_member(json& obj, const std::string& key, const json& value) {
+        obj.as_object()[utility::conversions::to_string_t(key)] = value;
+    }
+    
+    inline void remove_member(json& obj, const std::string& key) {
+        obj.as_object().erase(utility::conversions::to_string_t(key));
+    }
+    
+    // Array manipulation functions
+    inline void append_array(json& arr, const json& value) {
+        arr.as_array().push_back(value);
+    }
+    
+    inline void clear_array(json& arr) {
+        arr.as_array().clear();
+    }
     
 #else
     #error "Unknown JSON backend selected. Please choose from: NLOHMANN_JSON, JSON11, RAPIDJSON, JSONCPP, BOOST_JSON, SAJSON, SIMDJSON, CPPREST"
