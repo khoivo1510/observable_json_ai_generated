@@ -66,8 +66,8 @@ performance_comparison
 *.db
 
 # IDE and editor files
-.vscode/launch.json
-.vscode/c_cpp_properties.json
+# .vscode/launch.json
+# .vscode/c_cpp_properties.json
 *.swp
 *.swo
 *~

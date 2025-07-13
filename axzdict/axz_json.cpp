@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cwctype>
 #include <string>
+#include <sstream>
 
 namespace
 {
@@ -50,6 +51,12 @@ namespace Internal
 
 	private:
 		int m_indent;
+		
+		void append_indent() {
+			for (int i = 0; i < m_indent; i++) {
+				this->m_json += L" ";
+			}
+		}
 	};
 
 	/*
@@ -97,6 +104,10 @@ namespace Internal
 	{
         out_json.clear();
         this->m_json.clear();
+        
+        // Reserve memory for better performance - use adaptive sizing
+        size_t estimated_size = 512; // Conservative base size
+        this->m_json.reserve(estimated_size);
 
         auto rc = in_dict.step( this->shared_from_this() );
         if ( AXZ_SUCCESS( rc ) ) 
@@ -195,55 +206,51 @@ namespace Internal
 
 	axz_wstring AxzJsonStepper::_encodeString( const axz_wstring & to_encode ) const
 	{
-		// store escapes to return
-		axz_wstring ret = L"";
+		// Early return for empty strings
+		if (to_encode.empty()) return L"";
+		
+		// Check if encoding is needed - fast scan first
+		bool needs_encoding = false;
+		for (const wchar_t c : to_encode) {
+			if (c < 0x20 || c == L'"' || c == L'\\') {
+				needs_encoding = true;
+				break;
+			}
+		}
+		
+		// If no encoding needed, return original
+		if (!needs_encoding) return to_encode;
 
-		for( size_t i = 0; i < to_encode.size(); ++i )
-		{
-			// pull character
-			axz_wchar c = to_encode[i];
+		// Pre-allocate with estimated size
+		axz_wstring ret;
+		ret.reserve(to_encode.size() + (to_encode.size() >> 3)); // +12.5% for escapes
 
-			// set it as if it is our append value already
-			axz_wstring append_str = L"";
-			append_str += c;
+		for (const wchar_t c : to_encode) {
+			// Fast path for common characters  
+			if (c >= 0x20 && c != L'"' && c != L'\\') {
+				ret += c;
+				continue;
+			}
 
-			switch( c )
-			{
-			case '"':
-				append_str = L"\\\"";
-				break;
-			case '\\':
-				append_str = L"\\\\";
-				break;
-			case '\t':
-				append_str = L"\\t";
-				break;
-			case '\n':
-				append_str = L"\\n";
-				break;
-			case '\r':
-				append_str = L"\\r";
-				break;
-			case '\b':
-				append_str = L"\\b";
-				break;
-			case '\f':
-				append_str = L"\\f";
-				break;
+			// Handle escapes
+			switch (c) {
+			case L'"':  ret += L"\\\""; break;
+			case L'\\': ret += L"\\\\"; break;
+			case L'\t': ret += L"\\t";  break;
+			case L'\n': ret += L"\\n";  break;
+			case L'\r': ret += L"\\r";  break;
+			case L'\b': ret += L"\\b";  break;
+			case L'\f': ret += L"\\f";  break;
 			default:
-				/*	JSON spec:
-					"All Unicode characters may be placed within the quotation marks except for the characters that must be
-					escaped: quotation mark, reverse solidus, and the control characters (U+0000 through U+001F)."
-				*/
-				if( c < 0x20 )
-				{
-					axz_wchar buff[16] = {0};
-					std::swprintf( buff, sizeof(buff)/sizeof(*buff), L"\\u%04x", c );
-					append_str = buff;
+				if (c < 0x20) {
+					wchar_t buff[8];
+					std::swprintf(buff, 8, L"\\u%04x", c);
+					ret += buff;
+				} else {
+					ret += c;
 				}
 				break;
 			}
-			ret += append_str;
 		}
 		return ret;
 	}
@@ -266,10 +273,7 @@ namespace Internal
             }
 
 			this->m_indent += 4;
-			for ( int i = 0; i < this->m_indent ; i++)
-			{
-				 this->m_json += L" ";
-			}
+			append_indent();
 
 			if ( AXZ_FAILED( rc = item.step( this->shared_from_this() ) ) ) {
                 break;
@@ -279,11 +283,8 @@ namespace Internal
 		}	
 
         if ( AXZ_SUCCESS( rc ) ) {	
-		    this->m_json += L"\n";				
-		    for ( int i = 0; i < this->m_indent ; i++)
-		    {
-			    this->m_json += L" ";
-		    }
+		    this->m_json += L"\n";
+		    append_indent();
 		    this->m_json += L"]";		
         }
 
@@ -302,11 +303,8 @@ namespace Internal
             }
 
 			this->m_indent += 4;
-			for ( int i = 0; i < this->m_indent ; i++)
-			{
-				 this->m_json += L" ";
-			}
-			this->m_json += L"\"" + this->_encodeString( kv.first ) + L"\": ";				
+			append_indent();
+			this->m_json += L"\"" + this->_encodeString(kv.first) + L"\": ";
 
     		if ( AXZ_FAILED( rc = kv.second.step( this->shared_from_this() ) ) ) {
                 break;
@@ -317,10 +315,7 @@ namespace Internal
 
         if ( AXZ_SUCCESS( rc ) ) {	
 		    this->m_json += L"\n";
-		    for ( int i = 0; i < this->m_indent ; i++)
-		    {
-			    this->m_json += L" ";
-		    }
+		    append_indent();
 		    this->m_json += L"}";		
 		}
 		return rc;

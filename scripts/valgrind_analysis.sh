@@ -229,7 +229,7 @@ run_valgrind_analysis() {
 }
 
 # Main execution
-cd /home/khoi/ws/observable_json_ai_generated
+cd /home/khoi/ws/observable_json_project
 
 echo -e "${YELLOW}Starting comprehensive Valgrind analysis...${NC}"
 echo ""
@@ -298,7 +298,7 @@ echo -e "${YELLOW}Check individual backend directories for detailed reports.${NC
 echo ""
 read -p "Clean up temporary directories? (y/n): " -r
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    rm -rf valgrind_nlohmann_json valgrind_json11 valgrind_rapidjson valgrind_jsoncpp
+    rm -rf valgrind_*
     echo "Cleanup completed."
 else
     echo "Temporary directories preserved for manual inspection."

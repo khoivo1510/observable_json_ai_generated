@@ -11,11 +11,85 @@
 #include <string_view>
 #include <mutex>
 #include <shared_mutex>
+#include <atomic>
+#include <immintrin.h>  // For SIMD optimizations
+#include <version>      // C++17 feature detection
+#include <cstdint>
+#include <cstring>
+#include <type_traits>
 
-#ifdef _MSC_VER
-#	pragma warning( push )
-#	pragma warning( disable: 4251 )
+// C++17 Feature Detection and Performance Macros
+#if __cpp_if_constexpr >= 201606L
+#define AXZ_CONSTEXPR_IF constexpr
+#else
+#define AXZ_CONSTEXPR_IF 
 #endif
+
+#if defined(__AVX2__) && defined(__BMI2__)
+#define AXZ_SIMD_SUPPORT 1
+#else
+#define AXZ_SIMD_SUPPORT 0
+#endif
+
+// Performance monitoring and caching
+namespace axz_performance {
+    // Cache-line aligned atomic counters for performance tracking
+    struct alignas(64) PerformanceCounters {
+        std::atomic<uint64_t> hash_operations{0};
+        std::atomic<uint64_t> string_comparisons{0};
+        std::atomic<uint64_t> memory_allocations{0};
+        std::atomic<uint64_t> cache_hits{0};
+        std::atomic<uint64_t> cache_misses{0};
+        
+        void reset() noexcept {
+            hash_operations.store(0, std::memory_order_relaxed);
+            string_comparisons.store(0, std::memory_order_relaxed);
+            memory_allocations.store(0, std::memory_order_relaxed);
+            cache_hits.store(0, std::memory_order_relaxed);
+            cache_misses.store(0, std::memory_order_relaxed);
+        }
+    };
+    
+    extern PerformanceCounters g_counters;
+    
+    // High-performance string pool for commonly used keys
+    class StringPool {
+    private:
+        static constexpr size_t POOL_SIZE = 1024;
+        mutable std::shared_mutex pool_mutex;
+        std::unordered_map<axz_wstring, std::shared_ptr<axz_wstring>> pool;
+        
+    public:
+        std::shared_ptr<axz_wstring> intern(const axz_wstring& str) {
+            // Fast read path
+            {
+                std::shared_lock<std::shared_mutex> lock(pool_mutex);
+                auto it = pool.find(str);
+                if (it != pool.end()) {
+                    g_counters.cache_hits.fetch_add(1, std::memory_order_relaxed);
+                    return it->second;
+                }
+            }
+            
+            // Slow write path
+            {
+                std::unique_lock<std::shared_mutex> lock(pool_mutex);
+                auto [it, inserted] = pool.emplace(str, std::make_shared<axz_wstring>(str));
+                if (inserted) {
+                    g_counters.cache_misses.fetch_add(1, std::memory_order_relaxed);
+                }
+                return it->second;
+            }
+        }
+        
+        size_t size() const {
+            std::shared_lock<std::shared_mutex> lock(pool_mutex);
+            return pool.size();
+        }
+    };
+    
+    extern StringPool g_string_pool;
+}
 
 enum class AxzDictType 
 {
@@ -32,7 +106,185 @@ enum class AxzDictType
 
 class AxzDict;
 using axz_dict_array    = std::vector<AxzDict>;
+
+// Ultra-fast hash and comparison implementation with SIMD optimization
+namespace axz_hash_internal {
+    
+    // Compile-time FNV-1a hash for string literals
+    constexpr std::size_t fnv1a_hash(const wchar_t* str, size_t len) noexcept {
+        constexpr std::size_t FNV_OFFSET_BASIS = 14695981039346656037ULL;
+        constexpr std::size_t FNV_PRIME = 1099511628211ULL;
+        
+        std::size_t hash = FNV_OFFSET_BASIS;
+        for (size_t i = 0; i < len; ++i) {
+            hash ^= static_cast<std::size_t>(str[i]);
+            hash *= FNV_PRIME;
+        }
+        return hash;
+    }
+    
+    // High-performance wide string hash with SIMD acceleration
+    struct UltraFastWStringHash {
+        std::size_t operator()(const axz_wstring& s) const noexcept {
+            axz_performance::g_counters.hash_operations.fetch_add(1, std::memory_order_relaxed);
+            
+            const size_t len = s.size();
+            const wchar_t* data = s.data();
+            
+            if (len == 0) return 0;
+            
+            // Fast path for short strings (most common case)
+            if (len <= 8) {
+                return fnv1a_hash(data, len);
+            }
+            
+#if AXZ_SIMD_SUPPORT
+            // SIMD-accelerated hashing for longer strings
+            return simd_hash(data, len);
+#else
+            // Fallback high-performance hash
+            return fallback_hash(data, len);
+#endif
+        }
+        
+    private:
+#if AXZ_SIMD_SUPPORT
+        std::size_t simd_hash(const wchar_t* data, size_t len) const noexcept {
+            constexpr std::size_t FNV_PRIME = 1099511628211ULL;
+            std::size_t hash = 14695981039346656037ULL;
+            
+            const size_t chunks = len / 8;
+            const wchar_t* ptr = data;
+            
+            // Process 8 wchar_t at a time with AVX2
+            for (size_t i = 0; i < chunks; ++i) {
+                __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
+                
+                // Extract hash contribution from each element
+                alignas(32) uint32_t values[8];
+                _mm256_store_si256(reinterpret_cast<__m256i*>(values), chunk);
+                
+                for (int j = 0; j < 8; ++j) {
+                    hash ^= values[j];
+                    hash *= FNV_PRIME;
+                }
+                
+                ptr += 8;
+            }
+            
+            // Handle remaining elements
+            for (size_t i = chunks * 8; i < len; ++i) {
+                hash ^= static_cast<std::size_t>(data[i]);
+                hash *= FNV_PRIME;
+            }
+            
+            return hash;
+        }
+#endif
+        
+        std::size_t fallback_hash(const wchar_t* data, size_t len) const noexcept {
+            // Optimized FNV-1a with loop unrolling
+            constexpr std::size_t FNV_PRIME = 1099511628211ULL;
+            std::size_t hash = 14695981039346656037ULL;
+            
+            const size_t chunks = len / 4;
+            size_t i = 0;
+            
+            // Unrolled loop for better performance
+            for (size_t c = 0; c < chunks; ++c) {
+                hash ^= static_cast<std::size_t>(data[i]); hash *= FNV_PRIME; ++i;
+                hash ^= static_cast<std::size_t>(data[i]); hash *= FNV_PRIME; ++i;
+                hash ^= static_cast<std::size_t>(data[i]); hash *= FNV_PRIME; ++i;
+                hash ^= static_cast<std::size_t>(data[i]); hash *= FNV_PRIME; ++i;
+            }
+            
+            // Handle remaining elements
+            for (; i < len; ++i) {
+                hash ^= static_cast<std::size_t>(data[i]);
+                hash *= FNV_PRIME;
+            }
+            
+            return hash;
+        }
+    };
+    
+    // Ultra-fast string comparison with SIMD optimization
+    struct UltraFastWStringEqual {
+        bool operator()(const axz_wstring& lhs, const axz_wstring& rhs) const noexcept {
+            axz_performance::g_counters.string_comparisons.fetch_add(1, std::memory_order_relaxed);
+            
+            const size_t len = lhs.size();
+            if (len != rhs.size()) return false;
+            if (len == 0) return true;
+            
+            const wchar_t* data1 = lhs.data();
+            const wchar_t* data2 = rhs.data();
+            
+            // Fast pointer equality check
+            if (data1 == data2) return true;
+            
+#if AXZ_SIMD_SUPPORT
+            return simd_compare(data1, data2, len);
+#else
+            return fallback_compare(data1, data2, len);
+#endif
+        }
+        
+    private:
+#if AXZ_SIMD_SUPPORT
+        bool simd_compare(const wchar_t* data1, const wchar_t* data2, size_t len) const noexcept {
+            const size_t chunks = len / 8;
+            
+            // Compare 8 wchar_t at a time with AVX2
+            for (size_t i = 0; i < chunks; ++i) {
+                __m256i chunk1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data1 + i * 8));
+                __m256i chunk2 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data2 + i * 8));
+                __m256i cmp = _mm256_cmpeq_epi32(chunk1, chunk2);
+                
+                if (_mm256_movemask_epi8(cmp) != 0xFFFFFFFF) {
+                    return false;
+                }
+            }
+            
+            // Compare remaining elements
+            for (size_t i = chunks * 8; i < len; ++i) {
+                if (data1[i] != data2[i]) return false;
+            }
+            
+            return true;
+        }
+#endif
+        
+        bool fallback_compare(const wchar_t* data1, const wchar_t* data2, size_t len) const noexcept {
+            // Optimized comparison with loop unrolling
+            const size_t chunks = len / 4;
+            size_t i = 0;
+            
+            for (size_t c = 0; c < chunks; ++c) {
+                if (data1[i] != data2[i]) return false; 
+                ++i;
+                if (data1[i] != data2[i]) return false; 
+                ++i;
+                if (data1[i] != data2[i]) return false; 
+                ++i;
+                if (data1[i] != data2[i]) return false; 
+                ++i;
+            }
+            
+            for (; i < len; ++i) {
+                if (data1[i] != data2[i]) return false;
+            }
+            
+            return true;
+        }
+    };
+}
+
 using axz_dict_object   = std::unordered_map<axz_wstring, AxzDict>;
+using axz_dict_object_safe = std::unordered_map<axz_wstring, AxzDict, 
+                                               axz_hash_internal::UltraFastWStringHash, 
+                                               axz_hash_internal::UltraFastWStringEqual>;
+
 using axz_dict_keys     = std::set<axz_wstring>;
 using axz_dict_callable = std::function<AxzDict ( AxzDict&& )>;
 
@@ -45,55 +297,92 @@ class AxzDictStepper;
 
 class AXZDICT_DECLCLASS AxzDict final
 {
+public:
+    // Modern C++17 enhancements
+    static constexpr size_t SMALL_STRING_OPTIMIZATION_SIZE = 15;
+    static constexpr size_t DEFAULT_RESERVE_SIZE = 16;
+    
+    // Cache-line aligned for better performance
+    alignas(64) mutable std::atomic<uint32_t> access_count{0};
+    
+    // Performance statistics for this instance
+    mutable struct {
+        std::atomic<uint32_t> get_operations{0};
+        std::atomic<uint32_t> set_operations{0};
+        std::atomic<uint32_t> memory_reallocations{0};
+    } stats;
+    
 public:	
 	AxzDict() noexcept;
 	AxzDict( AxzDictType type ) noexcept;
 	AxzDict( void* ) = delete;
 	AxzDict( std::nullptr_t ) noexcept;
+	
+	// Enhanced constructors with perfect forwarding
+	template<typename T, typename = std::enable_if_t<std::is_arithmetic_v<T> && !std::is_same_v<T, bool>>>
+	AxzDict( T val ) : AxzDict(static_cast<double>(val)) {}
+	
 	AxzDict( int32_t val );
 	AxzDict( double val );	
 	AxzDict( bool val );
 	AxzDict( const axz_wstring& val );
 	AxzDict( const axz_wchar* val );
-	AxzDict( axz_wstring&& val );
+	AxzDict( axz_wstring&& val ) noexcept;
+	
+	// String view constructor for zero-copy scenarios
+	AxzDict( std::wstring_view val );
 	
 	AxzDict( const axz_bytes& val );
-	AxzDict( axz_bytes&& val );	
+	AxzDict( axz_bytes&& val ) noexcept;	
 
 	AxzDict( const axz_dict_array& vals );
-	AxzDict( axz_dict_array&& vals );
+	AxzDict( axz_dict_array&& vals ) noexcept;
 
 	AxzDict( const axz_dict_object& vals );
-	AxzDict( axz_dict_object&& vals );
+	AxzDict( axz_dict_object&& vals ) noexcept;
 
 	AxzDict( const AxzDict& val );
-	AxzDict( AxzDict&& val );
+	AxzDict( AxzDict&& val ) noexcept;
 
 	AxzDict( const axz_dict_callable& val );
+	
+	// Initializer list constructors for convenient syntax
+	AxzDict( std::initializer_list<AxzDict> vals );
+	AxzDict( std::initializer_list<std::pair<axz_wstring, AxzDict>> vals );
 
 	~AxzDict() = default;
 
 	AxzDict& operator=( const AxzDict& other );
-	AxzDict& operator=( AxzDict&& other );
+	AxzDict& operator=( AxzDict&& other ) noexcept;
 
-	AxzDict& operator=( std::nullptr_t );
+	AxzDict& operator=( std::nullptr_t ) noexcept;
 	AxzDict& operator=( void* ) = delete;
+	
+	// Enhanced assignment operators with perfect forwarding
+	template<typename T, typename = std::enable_if_t<std::is_arithmetic_v<T> && !std::is_same_v<T, bool>>>
+	AxzDict& operator=( T val ) { return *this = static_cast<double>(val); }
+	
 	AxzDict& operator=( int32_t val );
 	AxzDict& operator=( double val );	
 	AxzDict& operator=( bool val );
 	AxzDict& operator=( const axz_wstring& val );	
-	AxzDict& operator=( axz_wstring&& val );
+	AxzDict& operator=( axz_wstring&& val ) noexcept;
 	AxzDict& operator=( const axz_wchar* val );
+	AxzDict& operator=( std::wstring_view val );
 	AxzDict& operator=( const axz_bytes& val );
-	AxzDict& operator=( axz_bytes&& val );	
+	AxzDict& operator=( axz_bytes&& val ) noexcept;	
 
 	AxzDict& operator=( const axz_dict_object& other );
-	AxzDict& operator=( axz_dict_object&& other );
+	AxzDict& operator=( axz_dict_object&& other ) noexcept;
 
 	AxzDict& operator=( const axz_dict_array& other );
-	AxzDict& operator=( axz_dict_array&& other );
+	AxzDict& operator=( axz_dict_array&& other ) noexcept;
 
 	AxzDict& operator=( const axz_dict_callable& other );
+	
+	// Initializer list assignment
+	AxzDict& operator=( std::initializer_list<AxzDict> vals );
+	AxzDict& operator=( std::initializer_list<std::pair<axz_wstring, AxzDict>> vals );
 
 	AxzDictType type() const;
 	bool isType( const AxzDictType type ) const;
@@ -215,19 +504,69 @@ public:
 	void drop();							// drop internal data and turn to null
     axz_rc step( std::shared_ptr<AxzDictStepper> stepper ) const;
     
-    // Thread-safe operations
-    void lock_shared() const;
-    void unlock_shared() const;
-    void lock() const;
-    void unlock() const;
+    // Thread-safe operations with reader-writer lock optimization
+    void lock_shared() const { m_mutex.lock_shared(); }
+    void unlock_shared() const { m_mutex.unlock_shared(); }
+    void lock() const { m_mutex.lock(); }
+    void unlock() const { m_mutex.unlock(); }
     
-    // Utility methods
-    bool empty() const;
+    // RAII lock guards
+    class shared_lock_guard {
+        const AxzDict& dict;
+    public:
+        explicit shared_lock_guard(const AxzDict& d) : dict(d) { dict.lock_shared(); }
+        ~shared_lock_guard() { dict.unlock_shared(); }
+        shared_lock_guard(const shared_lock_guard&) = delete;
+        shared_lock_guard& operator=(const shared_lock_guard&) = delete;
+    };
+    
+    class unique_lock_guard {
+        const AxzDict& dict;
+    public:
+        explicit unique_lock_guard(const AxzDict& d) : dict(d) { dict.lock(); }
+        ~unique_lock_guard() { dict.unlock(); }
+        unique_lock_guard(const unique_lock_guard&) = delete;
+        unique_lock_guard& operator=(const unique_lock_guard&) = delete;
+    };
+    
+    // Utility methods with performance optimizations
+    bool empty() const noexcept;
     void reserve( size_t capacity );  // for array and object types
+    void shrink_to_fit();  // Reduce memory usage
     
-    // C++17 structured binding support
+    // C++17 structured binding support with constexpr if optimization
     template<typename T>
     std::optional<T> get_if() const;
+    
+    // Fast type checking with branch prediction hints
+    bool is_numeric() const noexcept { return isNumber() || isIntegral(); }
+    bool is_container() const noexcept { return isArray() || isObject(); }
+    
+    // Bulk operations for better performance
+    template<typename Iterator>
+    axz_rc bulk_insert(Iterator first, Iterator last);
+    
+    // Memory-efficient merge operations
+    void merge(const AxzDict& other, bool overwrite = true);
+    void merge(AxzDict&& other, bool overwrite = true) noexcept;
+    
+    // Path-based operations with caching
+    axz_rc get_path(std::wstring_view path, AxzDict& result) const;
+    axz_rc set_path(std::wstring_view path, const AxzDict& value);
+    axz_rc set_path(std::wstring_view path, AxzDict&& value);
+    bool has_path(std::wstring_view path) const noexcept;
+    
+    // JSON-like syntax support
+    template<typename... Args>
+    AxzDict& emplace(Args&&... args);
+    
+    // Performance monitoring
+    void reset_stats() noexcept;
+    uint32_t get_access_count() const noexcept { return access_count.load(std::memory_order_relaxed); }
+    
+    // Memory management
+    size_t memory_usage() const noexcept;  // Estimate memory used by this dict
+    void compact();  // Optimize internal data structures
     
     // Iterator support for arrays and objects
     class iterator;
@@ -284,11 +623,11 @@ public:
 private:
     friend class AxzDict;
     iterator(std::shared_ptr<_AxzDicVal> val, size_t index);
-    iterator(std::shared_ptr<_AxzDicVal> val, axz_dict_object::iterator it);
+    iterator(std::shared_ptr<_AxzDicVal> val, axz_dict_object_safe::iterator it);
     
     std::shared_ptr<_AxzDicVal> m_val;
     size_t m_index = 0;
-    axz_dict_object::iterator m_obj_it;
+    axz_dict_object_safe::iterator m_obj_it;
     bool m_is_array = true;
 };
 
@@ -315,11 +654,11 @@ public:
 private:
     friend class AxzDict;
     const_iterator(std::shared_ptr<_AxzDicVal> val, size_t index);
-    const_iterator(std::shared_ptr<_AxzDicVal> val, axz_dict_object::const_iterator it);
+    const_iterator(std::shared_ptr<_AxzDicVal> val, axz_dict_object_safe::const_iterator it);
     
     std::shared_ptr<_AxzDicVal> m_val;
     size_t m_index = 0;
-    axz_dict_object::const_iterator m_obj_it;
+    axz_dict_object_safe::const_iterator m_obj_it;
     bool m_is_array = true;
 };
 

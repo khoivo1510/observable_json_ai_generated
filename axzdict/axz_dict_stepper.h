@@ -32,6 +32,16 @@ public:
 	virtual axz_rc step( const axz_bytes& )				{ return AXZ_OK; }
 	virtual axz_rc step( const axz_dict_array& )	    { return AXZ_OK; }
 	virtual axz_rc step( const axz_dict_object& )	    { return AXZ_OK; }
+	
+	// Support for safe object with ultra-fast hash/equal functions
+	virtual axz_rc step( const std::unordered_map<axz_wstring, class AxzDict, struct axz_hash_internal::UltraFastWStringHash, struct axz_hash_internal::UltraFastWStringEqual>& safe_obj ) { 
+		// Convert safe object to regular object for compatibility
+		axz_dict_object regular_obj;
+		for (const auto& pair : safe_obj) {
+			regular_obj.emplace(pair.first, pair.second);
+		}
+		return step(regular_obj);
+	}
 };
 
 #ifdef _MSC_VER

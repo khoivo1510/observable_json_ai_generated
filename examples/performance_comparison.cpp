@@ -110,7 +110,7 @@ int main() {
     std::cout << "Current backend: " << json_adapter::get_backend_name() << "\n";
     std::cout << "📖 Description: " << json_adapter::get_backend_description() << "\n";
     
-    benchmark_operations(json_adapter::get_backend_name());
+    benchmark_operations(std::string(json_adapter::get_backend_name()));
     
     std::cout << "\nTo compare with different backends:\n";
     std::cout << "  - nlohmann/json: cmake -DUSE_JSON11=OFF ..\n";

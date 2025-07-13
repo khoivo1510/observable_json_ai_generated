@@ -1,8 +1,0 @@
-{
-  "files.associations": {
-    "*.h": "cpp",
-    "*.cpp": "cpp"
-  },
-  "C_Cpp.default.cppStandard": "c++17",
-  "C_Cpp.default.compileCommands": "build/compile_commands.json"
-}
