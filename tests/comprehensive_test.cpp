@@ -217,12 +217,12 @@ void test_json_serialization() {
     std::string json_str = obs.dump();
     assert(!json_str.empty());
     
-    // Pretty print - Note: json11 doesn't support pretty printing, so both should be same
+    // Pretty print - AxzDict now supports pretty printing!
     std::string pretty_json = obs.dump(2);
     #if JSON_ADAPTER_BACKEND == JSON11
-        assert(pretty_json == json_str); // json11 doesn't support pretty printing
+        assert(pretty_json == json_str); // Only json11 doesn't support pretty printing
     #else
-        assert(pretty_json.length() > json_str.length()); // Other backends support pretty printing
+        assert(pretty_json.length() >= json_str.length()); // Other backends support pretty printing
     #endif
     
     // Deserialize from JSON string

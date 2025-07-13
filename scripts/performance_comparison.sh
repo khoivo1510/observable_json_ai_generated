@@ -1,15 +1,7 @@
 #!/bin/bash
 
 # Performance Comparison Script
-# Compares performance of nlohmann/json, json11, and RapidJSON backends
-
-echo "Universal Observable JSON - Performance Comparison"
-echo "=================================================="
-
-#!/bin/bash
-
-# Performance Comparison Script
-# Compares performance of nlohmann/json, json11, RapidJSON, and JsonCpp backends
+# Compares performance of nlohmann/json, json11, RapidJSON, JsonCpp, and AxzDict backends
 
 echo "Universal Observable JSON - Performance Comparison"
 echo "=================================================="
@@ -65,9 +57,10 @@ run_performance_test "nlohmann/json" ""
 run_performance_test "json11" "-DUSE_JSON11=ON"
 run_performance_test "RapidJSON" "-DUSE_RAPIDJSON=ON"
 run_performance_test "JsonCpp" "-DUSE_JSONCPP=ON"
+run_performance_test "AxzDict" "-DUSE_AXZDICT=ON"
 
 echo "Performance comparison completed."
-echo "Tested backends: nlohmann/json, json11, RapidJSON, JsonCpp"
+echo "Tested backends: nlohmann/json, json11, RapidJSON, JsonCpp, AxzDict"
 
 # Cleanup
 rm -rf perf_*

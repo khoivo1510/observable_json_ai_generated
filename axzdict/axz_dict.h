@@ -239,6 +239,11 @@ public:
     const_iterator end() const;
     const_iterator cbegin() const;
     const_iterator cend() const;
+    
+    // Integration compatibility methods
+    bool has(const axz_wstring& key) const;
+    void set(const axz_wstring& key, const AxzDict& value);
+    void append(const AxzDict& value);
 
 private:
 	AxzDict( std::shared_ptr<_AxzDicVal> other ): m_val( other ){}

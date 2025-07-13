@@ -875,6 +875,38 @@ private:
                     throw std::runtime_error("Unsupported value type for JsonCpp");
                 }
             }
+        #elif JSON_ADAPTER_BACKEND == AXZDICT
+            if constexpr (std::is_same_v<T, bool>) {
+                auto dict = json_adapter::make_bool(value);
+                target.set(json_adapter::to_axz_wstring(key), dict);
+            } else if constexpr (std::is_same_v<T, int>) {
+                auto dict = json_adapter::make_int(value);
+                target.set(json_adapter::to_axz_wstring(key), dict);
+            } else if constexpr (std::is_same_v<T, double>) {
+                auto dict = json_adapter::make_double(value);
+                target.set(json_adapter::to_axz_wstring(key), dict);
+            } else if constexpr (std::is_same_v<T, std::string>) {
+                auto dict = json_adapter::make_string(value);
+                target.set(json_adapter::to_axz_wstring(key), dict);
+            } else if constexpr (std::is_same_v<T, const char*>) {
+                auto dict = json_adapter::make_string(std::string(value));
+                target.set(json_adapter::to_axz_wstring(key), dict);
+            } else if constexpr (std::is_array_v<T> && std::is_same_v<std::remove_extent_t<T>, char>) {
+                // Handle string literals like "Alice"
+                auto dict = json_adapter::make_string(std::string(value));
+                target.set(json_adapter::to_axz_wstring(key), dict);
+            } else {
+                // Try to handle other numeric types
+                if constexpr (std::is_integral_v<T>) {
+                    auto dict = json_adapter::make_int(static_cast<int>(value));
+                    target.set(json_adapter::to_axz_wstring(key), dict);
+                } else if constexpr (std::is_floating_point_v<T>) {
+                    auto dict = json_adapter::make_double(static_cast<double>(value));
+                    target.set(json_adapter::to_axz_wstring(key), dict);
+                } else {
+                    throw std::runtime_error("Unsupported value type for AxzDict");
+                }
+            }
         #else
             throw std::runtime_error("Set operation not implemented for this backend");
         #endif
@@ -920,6 +952,8 @@ private:
             target.doc.RemoveMember(key.c_str());
         #elif JSON_ADAPTER_BACKEND == JSONCPP
             target.removeMember(key);
+        #elif JSON_ADAPTER_BACKEND == AXZDICT
+            target.remove(json_adapter::to_axz_wstring(key));
         #else
             throw std::runtime_error("Remove operation not implemented for this backend");
         #endif

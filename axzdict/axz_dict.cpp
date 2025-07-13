@@ -629,6 +629,36 @@ AxzDict::AxzDict( axz_dict_array&& value ) : m_val( std::make_shared<_AxzArray>(
 
 AxzDict::AxzDict( axz_dict_object&& value ) : m_val( std::make_shared<_AxzObject>( std::move(value) ) ) {}
 
+// Constructor with AxzDictType
+AxzDict::AxzDict( AxzDictType type ) noexcept {
+    switch (type) {
+        case AxzDictType::NUL:
+            m_val = _AxzDicDefault::nullVal;
+            break;
+        case AxzDictType::BOOL:
+            m_val = _AxzDicDefault::falseVal;
+            break;
+        case AxzDictType::NUMBER:
+            m_val = std::make_shared<_AxzDouble>(0.0);
+            break;
+        case AxzDictType::INTEGRAL:
+            m_val = std::make_shared<_AxzInt>(0);
+            break;
+        case AxzDictType::STRING:
+            m_val = std::make_shared<_AxzString>(axz_wstring());
+            break;
+        case AxzDictType::ARRAY:
+            m_val = std::make_shared<_AxzArray>(axz_dict_array());
+            break;
+        case AxzDictType::OBJECT:
+            m_val = std::make_shared<_AxzObject>(axz_dict_object());
+            break;
+        default:
+            m_val = _AxzDicDefault::nullVal;
+            break;
+    }
+}
+
 // Assignment operators
 AxzDict& AxzDict::operator=( const AxzDict& other ) {
     if (this != &other) {
@@ -661,6 +691,12 @@ AxzDict& AxzDict::operator=( bool value ) {
 
 AxzDict& AxzDict::operator=( const wchar_t* value ) {
     m_val = std::make_shared<_AxzString>( axz_wstring(value) );
+    return *this;
+}
+
+// Missing assignment operator for wstring move
+AxzDict& AxzDict::operator=( axz_wstring&& value ) {
+    m_val = std::make_shared<_AxzString>( std::move(value) );
     return *this;
 }
 
@@ -760,6 +796,45 @@ axz_rc AxzDict::add( const AxzDict& val ) {
 axz_rc AxzDict::add( const axz_wstring& key, AxzDict&& val ) {
     std::unique_lock<std::shared_mutex> lock(m_mutex);
     return m_val->add(key, std::move(val));
+}
+
+axz_rc AxzDict::add( const axz_wstring& key, const AxzDict& val ) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
+    return m_val->add(key, val);
+}
+
+// Missing key-based val method
+axz_rc AxzDict::val( const axz_wstring& key, AxzDict& val ) const {
+    std::shared_lock<std::shared_mutex> lock(m_mutex);
+    return m_val->val(key, val);
+}
+
+// Missing contain method
+axz_rc AxzDict::contain( const axz_wstring& key ) const {
+    std::shared_lock<std::shared_mutex> lock(m_mutex);
+    if (m_val->type() != AxzDictType::OBJECT) {
+        return AXZ_ERROR_NOT_SUPPORT;
+    }
+    
+    auto obj_ptr = static_cast<const _AxzObject*>(m_val.get());
+    auto it = obj_ptr->m_val.find(key);
+    return (it != obj_ptr->m_val.end()) ? AXZ_OK : AXZ_ERROR_NOT_FOUND;
+}
+
+// Missing remove method
+axz_rc AxzDict::remove( const axz_wstring& key ) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
+    if (m_val->type() != AxzDictType::OBJECT) {
+        return AXZ_ERROR_NOT_SUPPORT;
+    }
+    
+    auto obj_ptr = static_cast<_AxzObject*>(m_val.get());
+    auto it = obj_ptr->m_val.find(key);
+    if (it != obj_ptr->m_val.end()) {
+        obj_ptr->m_val.erase(it);
+        return AXZ_OK;
+    }
+    return AXZ_ERROR_NOT_FOUND;
 }
 
 axz_rc AxzDict::step( std::shared_ptr<AxzDictStepper> stepper ) const {
@@ -914,5 +989,18 @@ const AxzDict& AxzDict::operator[]( size_t index ) const {
         throw std::out_of_range("AxzDict::operator[](index) const called on non-array type");
     }
     return m_val->at(index);
+}
+
+// Integration compatibility methods
+bool AxzDict::has(const axz_wstring& key) const {
+    return AXZ_SUCCESS(contain(key));
+}
+
+void AxzDict::set(const axz_wstring& key, const AxzDict& value) {
+    add(key, value);
+}
+
+void AxzDict::append(const AxzDict& value) {
+    add(value);
 }
 

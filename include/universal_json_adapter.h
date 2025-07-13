@@ -20,10 +20,11 @@
 #define JSON11           2  
 #define RAPIDJSON        3
 #define JSONCPP          4
-#define BOOST_JSON       5
-#define SAJSON           6
-#define SIMDJSON         7
-#define CPPREST          8
+#define AXZDICT          5
+#define BOOST_JSON       6
+#define SAJSON           7
+#define SIMDJSON         8
+#define CPPREST          9
 
 // Include the selected JSON library
 #if JSON_ADAPTER_BACKEND == NLOHMANN_JSON
@@ -38,6 +39,18 @@
     #include <rapidjson/error/en.h>
 #elif JSON_ADAPTER_BACKEND == JSONCPP
     #include <json/json.h>
+#elif JSON_ADAPTER_BACKEND == AXZDICT
+    #include "axz_dict.h"
+    #include "axz_json.h"
+    #include "axz_dict_compat.h"
+    
+    // Define missing constants for AxzDict types
+    #define AXZ_DICT_NULL     AxzDictType::NUL
+    #define AXZ_DICT_BOOL     AxzDictType::BOOL
+    #define AXZ_DICT_NUMBER   AxzDictType::NUMBER
+    #define AXZ_DICT_STRING   AxzDictType::STRING
+    #define AXZ_DICT_ARRAY    AxzDictType::ARRAY
+    #define AXZ_DICT_OBJECT   AxzDictType::OBJECT
 #elif JSON_ADAPTER_BACKEND == BOOST_JSON
     #include <boost/json.hpp>
 #elif JSON_ADAPTER_BACKEND == SAJSON
@@ -431,6 +444,168 @@ namespace json_adapter {
         arr.clear();
     }
     
+#elif JSON_ADAPTER_BACKEND == AXZDICT
+    using json = AxzDict;
+    
+    // Helper functions for string conversion
+    inline axz_wstring to_axz_wstring(const std::string& str) {
+        axz_wstring result;
+        result.reserve(str.size());
+        for (char c : str) {
+            result.push_back(static_cast<wchar_t>(c));
+        }
+        return result;
+    }
+    
+    inline std::string from_axz_wstring(const axz_wstring& wstr) {
+        std::string result;
+        result.reserve(wstr.size());
+        for (wchar_t wc : wstr) {
+            result.push_back(static_cast<char>(wc));
+        }
+        return result;
+    }
+    
+    // Optimized parse function for AxzDict with thread-local caching
+    inline json parse(const std::string& json_str) {
+        static thread_local AxzDict cached_dict = AxzDictCompat::create_typed(AXZ_DICT_OBJECT);
+        
+        // Reuse cached dict for better performance
+        cached_dict.clear();
+        auto wstr = to_axz_wstring(json_str);
+        
+        if (AXZ_SUCCESS(AxzJson::deserialize(wstr, cached_dict))) {
+            return cached_dict;
+        } else {
+            throw std::runtime_error("AxzDict JSON parse error - invalid JSON format");
+        }
+    }
+    
+    // Enhanced dump function for AxzDict with pretty printing support
+    inline std::string dump(const json& j, int indent = -1) {
+        static thread_local axz_wstring cached_result;
+        cached_result.clear();
+        
+        bool pretty_format = (indent >= 0);
+        
+        if (AXZ_SUCCESS(AxzJson::serialize(j, cached_result, pretty_format))) {
+            return from_axz_wstring(cached_result);
+        } else {
+            return "{}";
+        }
+    }
+    
+    // Type checking functions
+    inline bool is_null(const json& j) { return j.type() == AXZ_DICT_NULL; }
+    inline bool is_bool(const json& j) { return j.type() == AXZ_DICT_BOOL; }
+    inline bool is_number(const json& j) { return j.type() == AXZ_DICT_NUMBER; }
+    inline bool is_string(const json& j) { return j.type() == AXZ_DICT_STRING; }
+    inline bool is_array(const json& j) { return j.type() == AXZ_DICT_ARRAY; }
+    inline bool is_object(const json& j) { return j.type() == AXZ_DICT_OBJECT; }
+    
+    // Value extraction
+    inline bool get_bool(const json& j) { 
+        bool result = false;
+        j.val(result);
+        return result;
+    }
+    inline int get_int(const json& j) { 
+        int result = 0;
+        j.val(result);
+        return result;
+    }
+    inline double get_double(const json& j) { 
+        double result = 0.0;
+        j.val(result);
+        return result;
+    }
+    inline std::string get_string(const json& j) { 
+        axz_wstring result;
+        j.val(result);
+        return from_axz_wstring(result);
+    }
+    
+    // Array operations
+    inline size_t array_size(const json& j) { return j.size(); }
+    inline json array_at(const json& j, size_t index) { 
+        AxzDict result;
+        if (AxzDictCompat::safe_val(j, index, result)) {
+            return result;
+        }
+        return AxzDictCompat::create_typed(AXZ_DICT_NULL);
+    }
+    
+    // Optimized Object operations with caching
+    inline bool has_key(const json& j, const std::string& key) { 
+        static thread_local axz_wstring cached_key;
+        cached_key = to_axz_wstring(key);
+        return AxzDictCompat::safe_contain(j, cached_key);
+    }
+    inline json object_at(const json& j, const std::string& key) { 
+        static thread_local axz_wstring cached_key;
+        static thread_local AxzDict cached_result;
+        
+        cached_key = to_axz_wstring(key);
+        if (AxzDictCompat::safe_val(j, cached_key, cached_result)) {
+            return cached_result;
+        }
+        throw std::out_of_range("AxzDict key not found: " + key);
+    }
+    
+    // Optimized construction functions with caching
+    inline json make_null() { 
+        static thread_local AxzDict cached_null = AxzDictCompat::create_typed(AXZ_DICT_NULL);
+        return cached_null; 
+    }
+    inline json make_bool(bool value) { 
+        static thread_local AxzDict cached_bool = AxzDictCompat::create_typed(AXZ_DICT_BOOL);
+        cached_bool = value;
+        return cached_bool;
+    }
+    inline json make_int(int value) { 
+        static thread_local AxzDict cached_int = AxzDictCompat::create_typed(AXZ_DICT_NUMBER);
+        cached_int = static_cast<int32_t>(value);
+        return cached_int;
+    }
+    inline json make_double(double value) { 
+        static thread_local AxzDict cached_double = AxzDictCompat::create_typed(AXZ_DICT_NUMBER);
+        cached_double = value;
+        return cached_double;
+    }
+    inline json make_string(const std::string& value) { 
+        static thread_local AxzDict cached_string = AxzDictCompat::create_typed(AXZ_DICT_STRING);
+        cached_string = to_axz_wstring(value);
+        return cached_string;
+    }
+    inline json make_array() { 
+        return AxzDictCompat::create_typed(AXZ_DICT_ARRAY); 
+    }
+    inline json make_object() { 
+        return AxzDictCompat::create_typed(AXZ_DICT_OBJECT); 
+    }
+    
+    // Optimized key manipulation functions
+    inline void set_member(json& obj, const std::string& key, const json& value) {
+        static thread_local axz_wstring cached_key;
+        cached_key = to_axz_wstring(key);
+        obj.set(cached_key, value);
+    }
+    
+    inline void remove_member(json& obj, const std::string& key) {
+        static thread_local axz_wstring cached_key;
+        cached_key = to_axz_wstring(key);
+        obj.remove(cached_key);
+    }
+    
+    // Array manipulation functions
+    inline void append_array(json& arr, const json& value) {
+        arr.append(value);
+    }
+    
+    inline void clear_array(json& arr) {
+        arr.clear();
+    }
+
 #elif JSON_ADAPTER_BACKEND == BOOST_JSON
     using json = boost::json::value;
     
@@ -624,6 +799,8 @@ inline std::string get_backend_name() {
     return "RapidJSON";
 #elif JSON_ADAPTER_BACKEND == JSONCPP
     return "JsonCpp";
+#elif JSON_ADAPTER_BACKEND == AXZDICT
+    return "AxzDict";
 #elif JSON_ADAPTER_BACKEND == BOOST_JSON
     return "Boost.JSON";
 #elif JSON_ADAPTER_BACKEND == SAJSON
@@ -646,6 +823,8 @@ inline std::string get_backend_description() {
     return "Fast JSON parser/generator with SAX/DOM style API";
 #elif JSON_ADAPTER_BACKEND == JSONCPP
     return "Mature, stable JSON library with good documentation";
+#elif JSON_ADAPTER_BACKEND == AXZDICT
+    return "AxzDict - Advanced dictionary-based JSON implementation";
 #elif JSON_ADAPTER_BACKEND == BOOST_JSON
     return "Part of Boost libraries, header-only, fast";
 #elif JSON_ADAPTER_BACKEND == SAJSON

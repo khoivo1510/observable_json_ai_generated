@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Comprehensive Analysis - Universal Observable JSON
-# Tests all 4 backends: nlohmann/json, json11, RapidJSON, JsonCpp
+# Tests all 5 backends: nlohmann/json, json11, RapidJSON, JsonCpp, AxzDict
 
 echo "Universal Observable JSON - Comprehensive Analysis"
 echo "================================================="
@@ -19,6 +19,7 @@ declare -A backends=(
     ["json11"]="-DUSE_JSON11=ON"
     ["rapidjson"]="-DUSE_RAPIDJSON=ON"
     ["jsoncpp"]="-DUSE_JSONCPP=ON"
+    ["axzdict"]="-DUSE_AXZDICT=ON"
 )
 
 # Results storage
@@ -140,7 +141,7 @@ analyze_backend() {
 }
 
 # Test all backends
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     analyze_backend "$backend" "${backends[$backend]}"
 done
 
@@ -152,7 +153,7 @@ echo "============================================"
 echo ""
 echo "Test Results:"
 echo "-------------"
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     result=${test_results[$backend]:-"NOT_TESTED"}
     if [ "$result" = "PASS" ]; then
         echo -e "  ${backend}: ${GREEN}✓ $result${NC}"
@@ -164,7 +165,7 @@ done
 echo ""
 echo "Performance Results:"
 echo "--------------------"
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     result=${performance_results[$backend]:-"NOT_TESTED"}
     echo "  ${backend}: $result"
 done
@@ -172,7 +173,7 @@ done
 echo ""
 echo "Memory Analysis Results:"
 echo "------------------------"
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     result=${memory_results[$backend]:-"NOT_TESTED"}
     if [[ "$result" == "No memory leaks detected" ]]; then
         echo -e "  ${backend}: ${GREEN}✓ $result${NC}"
@@ -194,7 +195,7 @@ echo "Universal JSON Adapter: ${ADAPTER_LINES} lines"
 echo "Total System: $((UNIVERSAL_LINES + ADAPTER_LINES)) lines"
 
 echo ""
-echo "Analysis completed for all backends: nlohmann/json, json11, RapidJSON, JsonCpp"
+echo "Analysis completed for all backends: nlohmann/json, json11, RapidJSON, JsonCpp, AxzDict"
 
 # Cleanup
 rm -rf analysis_*

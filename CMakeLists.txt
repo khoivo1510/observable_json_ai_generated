@@ -29,8 +29,12 @@ endif()
 option(USE_JSON11 "Use json11 backend instead of nlohmann/json" OFF)
 option(USE_RAPIDJSON "Use RapidJSON backend instead of nlohmann/json" OFF)
 option(USE_JSONCPP "Use JsonCpp backend instead of nlohmann/json" OFF)
+option(USE_AXZDICT "Use AxzDict backend instead of nlohmann/json" OFF)
 
-if(USE_JSONCPP)
+if(USE_AXZDICT)
+    message(STATUS "Using AxzDict backend")
+    set(JSON_BACKEND_MACRO "JSON_ADAPTER_BACKEND=5")
+elseif(USE_JSONCPP)
     message(STATUS "Using JsonCpp backend")
     set(JSON_BACKEND_MACRO "JSON_ADAPTER_BACKEND=4")
 elseif(USE_RAPIDJSON)
@@ -96,7 +100,16 @@ target_include_directories(universal_observable_json INTERFACE
 target_compile_definitions(universal_observable_json INTERFACE ${JSON_BACKEND_MACRO})
 
 # Link appropriate JSON library
-if(USE_JSONCPP)
+if(USE_AXZDICT)
+    add_subdirectory(axzdict)
+    target_link_libraries(universal_observable_json INTERFACE 
+        axzdct
+        Threads::Threads
+    )
+    target_include_directories(universal_observable_json INTERFACE
+        ${CMAKE_CURRENT_SOURCE_DIR}/axzdict
+    )
+elseif(USE_JSONCPP)
     target_link_libraries(universal_observable_json INTERFACE 
         jsoncpp_lib
         Threads::Threads
@@ -164,7 +177,9 @@ message(STATUS "  Backend: ${JSON_BACKEND_MACRO}")
 message(STATUS "  Build tests: ${BUILD_TESTS}")
 message(STATUS "  Build examples: ${BUILD_EXAMPLES}")
 message(STATUS "  Install prefix: ${CMAKE_INSTALL_PREFIX}")
-if(USE_JSONCPP)
+if(USE_AXZDICT)
+    message(STATUS "  JSON Backend: AxzDict")
+elseif(USE_JSONCPP)
     message(STATUS "  JSON Backend: JsonCpp")
 elseif(USE_RAPIDJSON)
     message(STATUS "  JSON Backend: RapidJSON")

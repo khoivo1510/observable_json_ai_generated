@@ -2,7 +2,7 @@
 
 # Valgrind Analysis Script - Universal Observable JSON
 # Comprehensive performance, memory, and thread safety analysis for all JSON backends
-# Supports: nlohmann/json, json11, RapidJSON, JsonCpp
+# Supports: nlohmann/json, json11, RapidJSON, JsonCpp, AxzDict
 
 echo "Universal Observable JSON - Valgrind Analysis"
 echo "=============================================="
@@ -45,6 +45,7 @@ declare -A backends=(
     ["json11"]="-DUSE_JSON11=ON"
     ["rapidjson"]="-DUSE_RAPIDJSON=ON"
     ["jsoncpp"]="-DUSE_JSONCPP=ON"
+    ["axzdict"]="-DUSE_AXZDICT=ON"
 )
 
 # Results storage
@@ -234,7 +235,7 @@ echo -e "${YELLOW}Starting comprehensive Valgrind analysis...${NC}"
 echo ""
 
 # Run analysis for all backends
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     run_valgrind_analysis "$backend" "${backends[$backend]}"
 done
 
@@ -246,7 +247,7 @@ echo ""
 
 echo -e "${BLUE}Memory Analysis (Memcheck) Results:${NC}"
 echo "----------------------------------------"
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     result=${memcheck_results[$backend]:-"NOT_TESTED"}
     if [[ "$result" == "PASS"* ]]; then
         echo -e "  ${backend}: ${GREEN}✓ $result${NC}"
@@ -258,7 +259,7 @@ done
 echo ""
 echo -e "${BLUE}Thread Safety Analysis (Helgrind) Results:${NC}"
 echo "-------------------------------------------"
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     result=${helgrind_results[$backend]:-"NOT_TESTED"}
     if [[ "$result" == "PASS"* ]]; then
         echo -e "  ${backend}: ${GREEN}✓ $result${NC}"
@@ -272,7 +273,7 @@ done
 echo ""
 echo -e "${BLUE}Performance Analysis Results:${NC}"
 echo "--------------------------------"
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     result=${performance_results[$backend]:-"NOT_TESTED"}
     if [[ "$result" != *"FAIL"* ]] && [[ "$result" != "NOT_TESTED" ]]; then
         echo -e "  ${backend}: ${GREEN}$result${NC}"
@@ -287,6 +288,7 @@ echo "  - nlohmann/json: Full-featured JSON library"
 echo "  - json11: Lightweight JSON library"
 echo "  - RapidJSON: Fast JSON parser/generator"
 echo "  - JsonCpp: Mature JSON library"
+echo "  - AxzDict: Advanced dictionary-based JSON implementation"
 
 echo ""
 echo -e "${GREEN}All Valgrind analysis logs have been saved in respective directories.${NC}"

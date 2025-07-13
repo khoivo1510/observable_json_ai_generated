@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Universal Backend Test Script
-# Tests nlohmann/json, json11, RapidJSON, and JsonCpp backends
+# Tests nlohmann/json, json11, RapidJSON, JsonCpp, and AxzDict backends
 
 echo "Universal Observable JSON - Backend Testing"
 echo "============================================"
@@ -101,6 +101,7 @@ test_backend "nlohmann_json" ""
 test_backend "json11" "-DUSE_JSON11=ON"  
 test_backend "rapidjson" "-DUSE_RAPIDJSON=ON"
 test_backend "jsoncpp" "-DUSE_JSONCPP=ON"
+test_backend "axzdict" "-DUSE_AXZDICT=ON"
 
 # Print summary
 echo "============================================"
@@ -108,7 +109,7 @@ echo -e "${BLUE}BACKEND TEST SUMMARY${NC}"
 echo "============================================"
 
 echo "Results:"
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     result=${results[$backend]:-"NOT_TESTED"}
     if [ "$result" = "PASS" ]; then
         echo -e "  ${backend}: ${GREEN}✓ PASS${NC}"
@@ -119,7 +120,7 @@ done
 
 echo ""
 echo "Performance (1000 operations):"
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     perf=${performance[$backend]:-"N/A"}
     if [ "$perf" != "N/A" ]; then
         echo "  ${backend}: $perf"
@@ -129,7 +130,7 @@ done
 # Count results
 passed=0
 total=0
-for backend in nlohmann_json json11 rapidjson jsoncpp; do
+for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     result=${results[$backend]:-"NOT_TESTED"}
     total=$((total + 1))
     if [ "$result" = "PASS" ]; then
@@ -148,7 +149,7 @@ fi
 cd ..
 
 echo "Backend testing completed."
-echo "Tested: nlohmann/json, json11, RapidJSON, JsonCpp"
+echo "Tested: nlohmann/json, json11, RapidJSON, JsonCpp, AxzDict"
 
 # Cleanup
-rm -rf test_nlohmann_json test_json11 test_rapidjson test_jsoncpp
+rm -rf test_nlohmann_json test_json11 test_rapidjson test_jsoncpp test_axzdict

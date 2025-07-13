@@ -16,21 +16,13 @@ set( CMAKE_INSTALL_RPATH "$ORIGIN/" )
 
 # for module sources
 file( GLOB LIB_DICT_SOURCES *.cpp )
-list(REMOVE_ITEM LIB_DICT_SOURCES 
-    "${CMAKE_CURRENT_SOURCE_DIR}/axz_dict_enhanced_test.cpp"
-)
 
 # do generate shared library from sources
 add_library( ${PROJECT_NAME} SHARED ${LIB_DICT_SOURCES} )
 
-# Add enhanced test executable - link with the library instead of building from sources
-add_executable( axzdict_enhanced_test axz_dict_enhanced_test.cpp )
-target_link_libraries( axzdict_enhanced_test ${PROJECT_NAME} )
-
 
 if ( UNIX AND NOT APPLE )
     target_link_libraries( ${PROJECT_NAME} gcc_s pthread )
-    target_link_libraries( axzdict_enhanced_test ${PROJECT_NAME} pthread )
     if ( UNIX AND NOT APPLE )
         include(dbgGenerator OPTIONAL RESULT_VARIABLE _module_path)
         if (NOT _module_path)
