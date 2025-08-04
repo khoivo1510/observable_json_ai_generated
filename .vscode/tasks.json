@@ -6,74 +6,95 @@
             "type": "shell",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "-B", "build",
                 "-DCMAKE_BUILD_TYPE=Debug",
+                "-DUSE_AXZDICT=OFF",
+                "-DUSE_JSONCPP=OFF",
+                "-DUSE_RAPIDJSON=OFF",
+                "-DUSE_JSON11=OFF",
                 "-DBUILD_TESTS=ON",
                 "-DBUILD_EXAMPLES=ON"
             ],
             "group": "build",
             "problemMatcher": ["$gcc"],
-            "detail": "Configure với nlohmann/json backend (default)"
+            "detail": "Configure with nlohmann/json backend (default)"
         },
         {
             "label": "Configure - AxzDict Backend",
             "type": "shell",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "-B", "build",
                 "-DCMAKE_BUILD_TYPE=Debug",
                 "-DUSE_AXZDICT=ON",
+                "-DUSE_JSONCPP=OFF",
+                "-DUSE_RAPIDJSON=OFF",
+                "-DUSE_JSON11=OFF",
                 "-DBUILD_TESTS=ON",
                 "-DBUILD_EXAMPLES=ON"
             ],
             "group": "build",
             "problemMatcher": ["$gcc"],
-            "detail": "Configure với AxzDict backend"
+            "detail": "Configure with AxzDict backend"
         },
         {
             "label": "Configure - JsonCpp Backend",
             "type": "shell",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "-B", "build",
                 "-DCMAKE_BUILD_TYPE=Debug",
+                "-DUSE_AXZDICT=OFF",
                 "-DUSE_JSONCPP=ON",
+                "-DUSE_RAPIDJSON=OFF",
+                "-DUSE_JSON11=OFF",
                 "-DBUILD_TESTS=ON",
                 "-DBUILD_EXAMPLES=ON"
             ],
             "group": "build",
             "problemMatcher": ["$gcc"],
-            "detail": "Configure với JsonCpp backend"
+            "detail": "Configure with JsonCpp backend"
         },
         {
             "label": "Configure - RapidJSON Backend",
             "type": "shell",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "-B", "build",
                 "-DCMAKE_BUILD_TYPE=Debug",
+                "-DUSE_AXZDICT=OFF",
+                "-DUSE_JSONCPP=OFF",
                 "-DUSE_RAPIDJSON=ON",
+                "-DUSE_JSON11=OFF",
                 "-DBUILD_TESTS=ON",
                 "-DBUILD_EXAMPLES=ON"
             ],
             "group": "build",
             "problemMatcher": ["$gcc"],
-            "detail": "Configure với RapidJSON backend"
+            "detail": "Configure with RapidJSON backend"
         },
         {
             "label": "Configure - json11 Backend",
             "type": "shell",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "-B", "build",
                 "-DCMAKE_BUILD_TYPE=Debug",
+                "-DUSE_AXZDICT=OFF",
+                "-DUSE_JSONCPP=OFF",
+                "-DUSE_RAPIDJSON=OFF",
                 "-DUSE_JSON11=ON",
                 "-DBUILD_TESTS=ON",
                 "-DBUILD_EXAMPLES=ON"
             ],
             "group": "build",
             "problemMatcher": ["$gcc"],
-            "detail": "Configure với json11 backend"
+            "detail": "Configure with json11 backend"
         },
         {
             "label": "Build Project",
@@ -88,17 +109,17 @@
                 "isDefault": true
             },
             "problemMatcher": ["$gcc"],
-            "detail": "Build dự án (cần configure trước)"
+            "detail": "Build the project (must configure first)"
         },
         {
             "label": "Clean Build",
             "type": "shell",
-            "command": "rm",
+            "command": "cmake",
             "args": [
-                "-rf", "build"
+                "-E", "rm", "-rf", "build"
             ],
             "group": "build",
-            "detail": "Xóa thư mục build"
+            "detail": "Delete build directory"
         },
         {
             "label": "Configure + Build - AxzDict",
@@ -108,7 +129,7 @@
                 "Build Project"
             ],
             "group": "build",
-            "detail": "Configure và build với AxzDict backend"
+            "detail": "Configure and build with AxzDict backend"
         },
         {
             "label": "Configure + Build - JsonCpp",
@@ -118,7 +139,7 @@
                 "Build Project"
             ],
             "group": "build",
-            "detail": "Configure và build với JsonCpp backend"
+            "detail": "Configure and build with JsonCpp backend"
         },
         {
             "label": "Configure + Build - RapidJSON",
@@ -128,7 +149,7 @@
                 "Build Project"
             ],
             "group": "build",
-            "detail": "Configure và build với RapidJSON backend"
+            "detail": "Configure and build with RapidJSON backend"
         },
         {
             "label": "Configure + Build - json11",
@@ -138,7 +159,7 @@
                 "Build Project"
             ],
             "group": "build",
-            "detail": "Configure và build với json11 backend"
+            "detail": "Configure and build with json11 backend"
         },
         {
             "label": "Configure + Build - Default",
@@ -148,64 +169,77 @@
                 "Build Project"
             ],
             "group": "build",
-            "detail": "Configure và build với nlohmann/json backend (default)"
+            "detail": "Configure and build with nlohmann/json backend (default)"
         },
         {
             "label": "Run Tests",
             "type": "shell",
-            "command": "./build/comprehensive_test",
+            "command": "ctest",
+            "args": [
+                "--test-dir", "build",
+                "--output-on-failure"
+            ],
             "group": "test",
-            "detail": "Chạy comprehensive test"
+            "detail": "Run comprehensive test suite via CTest"
         },
         {
             "label": "Run Basic Example",
             "type": "shell",
-            "command": "./build/basic_example",
+            "command": "build/basic_example",
             "group": "test",
-            "detail": "Chạy basic example"
+            "detail": "Run basic example"
         },
         {
             "label": "Run Performance Comparison",
             "type": "shell",
-            "command": "./build/performance_comparison",
+            "command": "build/performance_comparison",
             "group": "test",
-            "detail": "Chạy performance comparison"
+            "detail": "Run performance comparison"
         },
         {
             "label": "Run Multi Backend Demo",
             "type": "shell",
-            "command": "./build/multi_backend_demo",
+            "command": "build/multi_backend_demo",
             "group": "test",
-            "detail": "Chạy multi backend demo"
+            "detail": "Run multi backend demo"
         },
         {
             "label": "Configure Release - AxzDict",
             "type": "shell",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "-B", "build",
                 "-DCMAKE_BUILD_TYPE=Release",
                 "-DUSE_AXZDICT=ON",
+                "-DUSE_JSONCPP=OFF",
+                "-DUSE_RAPIDJSON=OFF",
+                "-DUSE_JSON11=OFF",
                 "-DBUILD_TESTS=ON",
                 "-DBUILD_EXAMPLES=ON"
             ],
             "group": "build",
             "problemMatcher": ["$gcc"],
-            "detail": "Configure Release build với AxzDict backend"
+            "detail": "Configure Release build with AxzDict backend"
         },
         {
             "label": "Configure Release - Default",
             "type": "shell",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "-B", "build",
                 "-DCMAKE_BUILD_TYPE=Release",
+                "-DUSE_AXZDICT=OFF",
+                "-DUSE_JSONCPP=OFF",
+                "-DUSE_RAPIDJSON=OFF",
+                "-DUSE_JSON11=OFF",
                 "-DBUILD_TESTS=ON",
                 "-DBUILD_EXAMPLES=ON"
             ],
             "group": "build",
             "problemMatcher": ["$gcc"],
-            "detail": "Configure Release build với nlohmann/json backend"
+            "detail": "Configure Release build with nlohmann/json backend"
         }
     ]
 }

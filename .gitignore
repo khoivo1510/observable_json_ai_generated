@@ -1,12 +1,14 @@
+build_analysis/
+
 # Build directories
 build*/
 _build/
 build_analysis/
-helgrind_test/
-test_*/
+analysis_*/
+out/
 perf_*/
 valgrind_*/
-out/
+test_*/
 
 # CMake generated files
 CMakeFiles/
@@ -19,7 +21,7 @@ Makefile
 !CMakeLists.txt
 !cmake/
 
-# Executables
+# Executables and binaries
 *.exe
 *.out
 *.app
@@ -31,25 +33,22 @@ basic_example
 multi_backend_demo
 performance_comparison
 
-# Object files
+# Object and library files
 *.o
 *.obj
 *.lo
 *.slo
 *.ko
 *.elf
-
-# Libraries
 *.lib
 *.a
 *.la
-*.lo
 *.dll
 *.so
 *.so.*
 *.dylib
 
-# Package files
+# Archives and packages
 *.7z
 *.dmg
 *.gz
@@ -65,12 +64,13 @@ performance_comparison
 *.sqlite
 *.db
 
-# IDE and editor files
-# .vscode/launch.json
-# .vscode/c_cpp_properties.json
+# Editor/IDE files
 *.swp
 *.swo
 *~
+# VSCode workspace configs (uncomment if needed)
+# .vscode/launch.json
+# .vscode/c_cpp_properties.json
 
 # OS generated files
 .DS_Store
@@ -87,10 +87,8 @@ Thumbs.db
 *.bak
 *.orig
 
-# Test outputs
+# Test outputs and generated test files
 test_output.txt
 valgrind_output.txt
 helgrind_output.txt
-memory_test.cpp
-thread_safety_test.cpp
 *.test

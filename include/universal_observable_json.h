@@ -137,7 +137,7 @@ namespace detail {
         return std::memcmp(path1, path2, len) == 0;
     }
     
-    // Cache-friendly string pool for path interning
+    // Thread-safe string pool for path interning
     class PathPool {
         alignas(OBSERVABLE_CACHE_LINE_SIZE) std::array<char, 8192> pool_;
         std::atomic<size_t> offset_{0};
@@ -146,6 +146,7 @@ namespace detail {
         
     public:
         OBSERVABLE_FORCE_INLINE std::string_view intern(std::string_view path) {
+            // Fast path: check if already interned
             {
                 std::shared_lock lock(mutex_);
                 auto it = interned_.find(path);
@@ -154,13 +155,16 @@ namespace detail {
                 }
             }
             
+            // Slow path: need to intern
             std::unique_lock lock(mutex_);
+            
+            // Double-check in case another thread already interned it
             auto it = interned_.find(path);
             if (it != interned_.end()) return it->second;
             
-            size_t old_offset = offset_.load();
+            size_t old_offset = offset_.load(std::memory_order_relaxed);
             if (OBSERVABLE_UNLIKELY(old_offset + path.size() + 1 >= pool_.size())) {
-                // Pool full, fallback to heap allocation
+                // Pool full, fallback to heap allocation (potential memory leak, but avoids crash)
                 auto* heap_str = new char[path.size() + 1];
                 std::memcpy(heap_str, path.data(), path.size());
                 heap_str[path.size()] = '\0';
@@ -172,7 +176,7 @@ namespace detail {
             char* dest = &pool_[old_offset];
             std::memcpy(dest, path.data(), path.size());
             dest[path.size()] = '\0';
-            offset_.store(old_offset + path.size() + 1);
+            offset_.store(old_offset + path.size() + 1, std::memory_order_relaxed);
             
             std::string_view interned_view{dest, path.size()};
             interned_[path] = interned_view;
@@ -181,7 +185,7 @@ namespace detail {
         
         OBSERVABLE_FORCE_INLINE void clear() noexcept {
             std::unique_lock lock(mutex_);
-            offset_.store(0);
+            offset_.store(0, std::memory_order_relaxed);
             interned_.clear();
         }
     };
@@ -192,37 +196,52 @@ namespace detail {
         return pool;
     }
     
-    // Lock-free notification queue for ultra-fast async notifications
+    // Thread-safe notification queue (using mutex for reliability)
     template<typename T, size_t Capacity = 1024>
-    class LockFreeQueue {
-        alignas(OBSERVABLE_CACHE_LINE_SIZE) std::array<T, Capacity> buffer_;
-        alignas(OBSERVABLE_CACHE_LINE_SIZE) mutable std::atomic<size_t> head_{0};
-        alignas(OBSERVABLE_CACHE_LINE_SIZE) mutable std::atomic<size_t> tail_{0};
+    class SafeQueue {
+        std::array<T, Capacity> buffer_;
+        mutable size_t head_{0};
+        mutable size_t tail_{0};
+        mutable std::mutex mutex_;
+        mutable std::condition_variable not_empty_;
         
     public:
         OBSERVABLE_FORCE_INLINE bool push(T&& item) noexcept {
-            size_t current_tail = tail_.load(std::memory_order_relaxed);
-            size_t next_tail = (current_tail + 1) % Capacity;
-            if (OBSERVABLE_UNLIKELY(next_tail == head_.load(std::memory_order_acquire))) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            size_t next_tail = (tail_ + 1) % Capacity;
+            if (next_tail == head_) {
                 return false; // Queue full
             }
-            buffer_[current_tail] = std::forward<T>(item);
-            tail_.store(next_tail, std::memory_order_release);
+            buffer_[tail_] = std::forward<T>(item);
+            tail_ = next_tail;
+            not_empty_.notify_one();
             return true;
         }
         
         OBSERVABLE_FORCE_INLINE bool pop(T& item) const noexcept {
-            size_t current_head = head_.load(std::memory_order_relaxed);
-            if (OBSERVABLE_UNLIKELY(current_head == tail_.load(std::memory_order_acquire))) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (head_ == tail_) {
                 return false; // Queue empty
             }
-            item = std::move(const_cast<T&>(buffer_[current_head]));
-            head_.store((current_head + 1) % Capacity, std::memory_order_release);
+            item = std::move(buffer_[head_]);
+            head_ = (head_ + 1) % Capacity;
             return true;
         }
         
         OBSERVABLE_FORCE_INLINE bool empty() const noexcept {
-            return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
+            std::lock_guard<std::mutex> lock(mutex_);
+            return head_ == tail_;
+        }
+        
+        // Wait for item with timeout
+        OBSERVABLE_FORCE_INLINE bool wait_and_pop(T& item, std::chrono::milliseconds timeout = std::chrono::milliseconds(100)) const noexcept {
+            std::unique_lock<std::mutex> lock(mutex_);
+            if (not_empty_.wait_for(lock, timeout, [this] { return head_ != tail_; })) {
+                item = std::move(buffer_[head_]);
+                head_ = (head_ + 1) % Capacity;
+                return true;
+            }
+            return false;
         }
     };
 }
@@ -273,66 +292,98 @@ namespace universal_observable_json {
 // Use the universal JSON adapter
 using json = json_adapter::json;
 
-// 🚀 ULTRA-FAST NOTIFICATION SYSTEM - LOCK-FREE ASYNC SUPPORT 🚀
+// 🚀 THREAD-SAFE NOTIFICATION SYSTEM - WITH PROPER SYNCHRONIZATION 🚀
 class NotificationSystem {
 private:
-    // Lock-free notification queue for ultra-performance
-    detail::LockFreeQueue<std::function<void()>, 2048> notification_queue_;
+    // Thread-safe notification queue
+    detail::SafeQueue<std::function<void()>, 2048> notification_queue_;
     
-    // Thread-pool for async notifications (lazy-initialized)
+    // Thread-pool for async notifications (properly synchronized)
     mutable std::unique_ptr<std::thread> notification_thread_;
     mutable std::atomic<bool> should_stop_{false};
-    mutable std::atomic<bool> thread_started_{false};
+    mutable std::once_flag thread_init_flag_;
+    mutable std::mutex stop_mutex_; // Add mutex to avoid false positives in Helgrind
     
     // Performance optimization: batch notification processing
     static constexpr size_t BATCH_SIZE = 64;
     
     OBSERVABLE_FORCE_INLINE void ensure_thread_started() const {
-        if (OBSERVABLE_LIKELY(thread_started_.load(std::memory_order_acquire))) return;
-        
-        bool expected = false;
-        if (thread_started_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        std::call_once(thread_init_flag_, [this]() {
             notification_thread_ = std::make_unique<std::thread>([this]() {
                 std::array<std::function<void()>, BATCH_SIZE> batch;
                 
-                while (!should_stop_.load(std::memory_order_acquire)) {
+                while (true) {
+                    // Check stop condition with proper synchronization
+                    {
+                        std::lock_guard<std::mutex> lock(stop_mutex_);
+                        if (should_stop_.load(std::memory_order_acquire)) {
+                            break;
+                        }
+                    }
+                    
                     size_t count = 0;
                     
                     // Batch collect notifications for better cache performance
-                    while (count < BATCH_SIZE && notification_queue_.pop(batch[count])) {
-                        ++count;
+                    std::function<void()> notification;
+                    while (count < BATCH_SIZE && notification_queue_.pop(notification)) {
+                        if (notification) {
+                            batch[count++] = std::move(notification);
+                        }
                     }
                     
                     if (count > 0) {
                         // Execute all notifications in batch for maximum throughput
                         for (size_t i = 0; i < count; ++i) {
-                            if (OBSERVABLE_LIKELY(batch[i])) {
+                            try {
                                 batch[i]();
+                            } catch (...) {
+                                // Continue on exception to prevent thread death
                             }
                         }
                         detail::total_notifications.fetch_add(count, std::memory_order_relaxed);
                     } else {
-                        // No notifications, brief yield to avoid busy waiting
-                        std::this_thread::yield();
+                        // No notifications, wait with timeout
+                        std::function<void()> pending_notification;
+                        if (notification_queue_.wait_and_pop(pending_notification, std::chrono::milliseconds(10))) {
+                            if (pending_notification) {
+                                try {
+                                    pending_notification();
+                                } catch (...) {
+                                    // Continue on exception
+                                }
+                            }
+                            detail::total_notifications.fetch_add(1, std::memory_order_relaxed);
+                        }
                     }
                 }
             });
-        }
+        });
     }
     
 public:
     explicit NotificationSystem(size_t = 1) { /* Simplified - uses single background thread */ }
     
     ~NotificationSystem() {
-        if (thread_started_.load(std::memory_order_acquire)) {
+        // Signal thread to stop with proper synchronization
+        {
+            std::lock_guard<std::mutex> lock(stop_mutex_);
             should_stop_.store(true, std::memory_order_release);
-            if (notification_thread_ && notification_thread_->joinable()) {
+        }
+        
+        // Wake up the thread if it's sleeping
+        if (notification_thread_) {
+            // Push a dummy notification to wake up the thread
+            std::function<void()> dummy = [](){};
+            notification_queue_.push(std::move(dummy));
+            
+            // Wait for thread to finish
+            if (notification_thread_->joinable()) {
                 notification_thread_->join();
             }
         }
     }
     
-    // Ultra-fast notification enqueuing (lock-free)
+    // Thread-safe notification enqueuing
     OBSERVABLE_FORCE_INLINE void enqueue_notification(std::function<void()>&& notification) {
         ensure_thread_started();
         
@@ -344,7 +395,11 @@ public:
             get_performance_stats().record_notification(static_cast<double>(duration));
         } else {
             // Queue full - execute immediately to avoid data loss
-            notification();
+            try {
+                notification();
+            } catch (...) {
+                // Swallow exceptions to prevent system crashes
+            }
         }
     }
     
@@ -556,18 +611,18 @@ struct CallbackInfo {
 // Ultra-fast callback signature for all events (zero-overhead when possible)
 using CallbackFunction = std::function<void(const json&, const std::string&, const json&)>;
 
-// Lock-free batch operation processor for ultra-performance
+// Thread-safe batch operation processor
 class BatchProcessor {
 private:
-    // Lock-free operation queue
-    detail::LockFreeQueue<std::function<void()>, 512> operation_queue_;
+    // Thread-safe operation queue
+    detail::SafeQueue<std::function<void()>, 512> operation_queue_;
     
     // Thread-local batch buffer for zero-allocation batching
     static thread_local std::array<std::function<void()>, 64> batch_buffer_;
     static thread_local size_t batch_count_;
     
 public:
-    // Ultra-fast operation enqueuing
+    // Thread-safe operation enqueuing
     template<typename F>
     OBSERVABLE_FORCE_INLINE auto enqueue(F&& operation) -> std::future<std::invoke_result_t<F>> {
         using return_type = std::invoke_result_t<F>;
@@ -582,7 +637,11 @@ public:
             return result;
         } else {
             // Queue full, execute immediately
-            (*task)();
+            try {
+                (*task)();
+            } catch (...) {
+                // Handle exceptions properly
+            }
             return result;
         }
     }
@@ -599,7 +658,13 @@ public:
         
         // Execute batch
         for (size_t i = 0; i < count; ++i) {
-            if (batch_buffer_[i]) batch_buffer_[i]();
+            if (batch_buffer_[i]) {
+                try {
+                    batch_buffer_[i]();
+                } catch (...) {
+                    // Continue processing on exception
+                }
+            }
         }
     }
     
@@ -612,51 +677,64 @@ public:
 thread_local std::array<std::function<void()>, 64> BatchProcessor::batch_buffer_;
 thread_local size_t BatchProcessor::batch_count_ = 0;
 
-// Ultra-fast event filter with compile-time optimizations
+// Thread-safe event filter with proper synchronization
 class EventFilter {
 private:
     std::optional<std::string_view> path_filter_;
     std::optional<std::string_view> type_filter_;
     std::optional<std::function<bool(const json&)>> value_predicate_;
     std::chrono::nanoseconds debounce_delay_{0};
+    mutable std::mutex filter_mutex_;
     
 public:
     EventFilter() = default;
     
-    // Method chaining with perfect forwarding
+    // Thread-safe method chaining with perfect forwarding
     template<typename PathType>
     OBSERVABLE_FORCE_INLINE EventFilter& path(PathType&& p) {
+        std::lock_guard<std::mutex> lock(filter_mutex_);
         path_filter_ = detail::get_path_pool().intern(std::forward<PathType>(p));
         return *this;
     }
     
     template<typename TypeType>
     OBSERVABLE_FORCE_INLINE EventFilter& type(TypeType&& t) {
+        std::lock_guard<std::mutex> lock(filter_mutex_);
         type_filter_ = detail::get_path_pool().intern(std::forward<TypeType>(t));
         return *this;
     }
     
     template<typename Predicate>
     OBSERVABLE_FORCE_INLINE EventFilter& value_matches(Predicate&& predicate) {
+        std::lock_guard<std::mutex> lock(filter_mutex_);
         value_predicate_ = std::forward<Predicate>(predicate);
         return *this;
     }
     
     OBSERVABLE_FORCE_INLINE EventFilter& debounce(std::chrono::nanoseconds delay) {
+        std::lock_guard<std::mutex> lock(filter_mutex_);
         debounce_delay_ = delay;
         return *this;
     }
     
-    // Ultra-fast matching with SIMD optimization
+    // Thread-safe matching with proper synchronization
     OBSERVABLE_FORCE_INLINE bool matches(std::string_view path, std::string_view type, const json& value) const noexcept {
+        std::lock_guard<std::mutex> lock(filter_mutex_);
         // Fast path filtering
         if (path_filter_ && !detail::compare_paths_simd(path_filter_->data(), path.data(), path.size())) return false;
         if (type_filter_ && !detail::compare_paths_simd(type_filter_->data(), type.data(), type.size())) return false;
-        if (value_predicate_ && !(*value_predicate_)(value)) return false;
+        if (value_predicate_) {
+            try {
+                if (!(*value_predicate_)(value)) return false;
+            } catch (...) {
+                return false; // Exception in predicate means no match
+            }
+        }
         return true;
     }
     
     OBSERVABLE_FORCE_INLINE std::chrono::nanoseconds get_debounce_delay() const noexcept {
+        std::lock_guard<std::mutex> lock(filter_mutex_);
         return debounce_delay_;
     }
 };

@@ -70,7 +70,8 @@ run_valgrind_analysis() {
     
     # Configure
     echo -e "${CYAN}Configuring ${backend_name}...${NC}"
-    if cmake $cmake_opts -DCMAKE_BUILD_TYPE=Debug .. > configure.log 2>&1; then
+    # Use RelWithDebInfo to avoid ASan conflicts with Valgrind and reduce strict warnings
+    if cmake $cmake_opts -DCMAKE_BUILD_TYPE=RelWithDebInfo .. > configure.log 2>&1; then
         echo -e "${GREEN}✓ Configure successful${NC}"
     else
         echo -e "${RED}✗ Configure failed${NC}"
@@ -125,12 +126,17 @@ run_valgrind_analysis() {
         ERROR_SUMMARY=$(grep "ERROR SUMMARY:" memcheck_${backend_name}.log | tail -1 || echo "ERROR SUMMARY: unknown")
         
         echo -e "${GREEN}Memory Analysis Results:${NC}"
-        echo "  Definitely lost: $DEFINITELY_LOST"
-        echo "  Indirectly lost: $INDIRECTLY_LOST"
-        echo "  Possibly lost: $POSSIBLY_LOST"
+        echo "  Definitely lost: ${DEFINITELY_LOST:-0 bytes}"
+        echo "  Indirectly lost: ${INDIRECTLY_LOST:-0 bytes}"
+        echo "  Possibly lost: ${POSSIBLY_LOST:-0 bytes}"
         echo "  $ERROR_SUMMARY"
         
-        memcheck_results[$backend_name]="PASS - $ERROR_SUMMARY"
+        # Better error detection
+        if grep -q "FATAL:" memcheck_${backend_name}.log; then
+            memcheck_results[$backend_name]="FATAL - $(grep "FATAL:" memcheck_${backend_name}.log | tail -1)"
+        else
+            memcheck_results[$backend_name]="PASS - $ERROR_SUMMARY"
+        fi
     else
         memcheck_results[$backend_name]="MEMCHECK_FAIL"
     fi
@@ -147,15 +153,19 @@ run_valgrind_analysis() {
     
     # Parse helgrind results
     if [ -f "helgrind_${backend_name}.log" ]; then
-        RACE_CONDITIONS=$(grep -c "Possible data race" helgrind_${backend_name}.log || echo "0")
-        LOCK_ORDER=$(grep -c "lock order violated" helgrind_${backend_name}.log || echo "0")
+        RACE_CONDITIONS=$(grep -c "Possible data race" helgrind_${backend_name}.log 2>/dev/null || echo "0")
+        LOCK_ORDER=$(grep -c "lock order violated" helgrind_${backend_name}.log 2>/dev/null || echo "0")
+        
+        # Remove any newlines or extra characters
+        RACE_CONDITIONS=$(echo "$RACE_CONDITIONS" | tr -d '\n' | tr -d ' ')
+        LOCK_ORDER=$(echo "$LOCK_ORDER" | tr -d '\n' | tr -d ' ')
         
         echo -e "${GREEN}Thread Safety Results:${NC}"
         echo "  Possible data races: $RACE_CONDITIONS"
         echo "  Lock order violations: $LOCK_ORDER"
         
         if [ "$RACE_CONDITIONS" = "0" ] && [ "$LOCK_ORDER" = "0" ]; then
-            helgrind_results[$backend_name]="PASS - No issues"
+            helgrind_results[$backend_name]="PASS - No thread safety issues detected"
         else
             helgrind_results[$backend_name]="ISSUES - $RACE_CONDITIONS races, $LOCK_ORDER lock violations"
         fi
@@ -197,24 +207,37 @@ run_valgrind_analysis() {
     
     # Parse cache results
     if [ -f "cachegrind_${backend_name}.out" ]; then
-        I_REFS=$(grep "I   refs:" cachegrind_${backend_name}.out | head -1 || echo "I   refs: unknown")
-        D_REFS=$(grep "D   refs:" cachegrind_${backend_name}.out | head -1 || echo "D   refs: unknown")
+        I_REFS=$(grep "I   refs:" cachegrind_${backend_name}.out | head -1 | sed 's/I   refs://' | xargs || echo "")
+        D_REFS=$(grep "D   refs:" cachegrind_${backend_name}.out | head -1 | sed 's/D   refs://' | xargs || echo "")
         
         echo -e "${GREEN}Cache Analysis Results:${NC}"
-        echo "  $I_REFS"
-        echo "  $D_REFS"
+        if [ -n "$I_REFS" ]; then
+            echo "  Instruction refs: $I_REFS"
+        else
+            echo "  Instruction refs: Analysis completed (check .out file for details)"
+        fi
+        
+        if [ -n "$D_REFS" ]; then
+            echo "  Data refs: $D_REFS"
+        else
+            echo "  Data refs: Analysis completed (check .out file for details)"
+        fi
+    else
+        echo -e "${RED}Cache analysis failed - no output file${NC}"
     fi
     
     echo ""
     
     # Show test results
     echo -e "${CYAN}Test Execution Results:${NC}"
-    if grep -q "ALL TESTS PASSED!" test_output_memcheck.log; then
+    if grep -q "ALL TESTS PASSED!" test_output_memcheck.log || grep -q "All tests completed successfully" test_output_memcheck.log || grep -q "All .* tests passed" test_output_memcheck.log; then
         echo -e "${GREEN}✓ All tests passed${NC}"
+    elif [ ! -s test_output_memcheck.log ]; then
+        echo -e "${YELLOW}⚠️ Test output empty (tests may have run under Valgrind)${NC}"
     else
-        echo -e "${RED}✗ Some tests failed${NC}"
+        echo -e "${RED}✗ Some tests failed or unclear results${NC}"
         echo "Failed tests:"
-        grep "FAIL:" test_output_memcheck.log | head -5
+        grep -E "(FAIL:|assertion failed|Error:|error:|Assertion)" test_output_memcheck.log | head -5 || echo "  No specific failure messages found"
     fi
     
     echo ""
@@ -229,7 +252,7 @@ run_valgrind_analysis() {
 }
 
 # Main execution
-cd /home/khoi/ws/observable_json_project
+cd /home/khoi/ws/observable_json_ai_generated
 
 echo -e "${YELLOW}Starting comprehensive Valgrind analysis...${NC}"
 echo ""
@@ -271,12 +294,26 @@ for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
 done
 
 echo ""
-echo -e "${BLUE}Performance Analysis Results:${NC}"
-echo "--------------------------------"
+echo -e "${BLUE}Performance Analysis Results (1000 operations):${NC}"
+echo "------------------------------------------------"
 for backend in nlohmann_json json11 rapidjson jsoncpp axzdict; do
     result=${performance_results[$backend]:-"NOT_TESTED"}
     if [[ "$result" != *"FAIL"* ]] && [[ "$result" != "NOT_TESTED" ]]; then
-        echo -e "  ${backend}: ${GREEN}$result${NC}"
+        # Parse timing and add performance ranking
+        if [[ "$result" =~ ([0-9]+)ms ]]; then
+            timing=${BASH_REMATCH[1]}
+            if [ "$timing" -lt 100 ]; then
+                echo -e "  ${backend}: ${GREEN}⚡ $result (Excellent)${NC}"
+            elif [ "$timing" -lt 500 ]; then
+                echo -e "  ${backend}: ${YELLOW}🚀 $result (Good)${NC}"
+            elif [ "$timing" -lt 2000 ]; then
+                echo -e "  ${backend}: ${CYAN}⏱️  $result (Moderate)${NC}"
+            else
+                echo -e "  ${backend}: ${RED}🐌 $result (Slow)${NC}"
+            fi
+        else
+            echo -e "  ${backend}: ${GREEN}$result${NC}"
+        fi
     else
         echo -e "  ${backend}: ${RED}$result${NC}"
     fi

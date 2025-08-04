@@ -22,7 +22,7 @@ int main() {
     // Add subscription
     std::cout << "📡 Adding subscription...\n";
     volatile int notification_count = 0;
-    auto sub = obs.subscribe([&notification_count](const json& new_val, const std::string& key, const json& old_val) {
+    auto sub = obs.subscribe([&notification_count](const json& new_val, const std::string& key, const json& /*old_val*/) {
         std::cout << "  🔔 Notification: " << key << " = " << json_adapter::dump(new_val) << "\n";
         notification_count++;
     });

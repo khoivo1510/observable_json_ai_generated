@@ -6,6 +6,13 @@ project( axzdct )
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Handle unused parameter warnings for RelWithDebInfo builds
+if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        add_compile_options(-Wno-unused-parameter)
+    endif()
+endif()
+
 if ( MSVC )
     add_definitions( -DAXZDICT_EXPORT -DUNICODE )
 endif()

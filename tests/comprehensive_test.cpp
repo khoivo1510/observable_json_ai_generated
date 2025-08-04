@@ -105,7 +105,7 @@ void test_subscription_system() {
     std::mutex events_mutex; // Thread-safe access to events
     
     // Subscribe to changes
-    size_t sub_id = obs.subscribe([&events, &events_mutex](const json& new_val, const std::string& key, const json& old_val) {
+    size_t sub_id = obs.subscribe([&events, &events_mutex](const json& /*new_val*/, const std::string& key, const json& /*old_val*/) {
         std::lock_guard<std::mutex> lock(events_mutex);
         events.push_back("changed:" + key);
     });
@@ -333,6 +333,7 @@ void test_exception_safety() {
             }
             safe_callbacks++;
         });
+        (void)id; // Mark unused variable to avoid -Werror=unused-variable
         
         // Test that exceptions in callbacks don't crash the system
         obs.set("safe_key", std::string("safe_value"));
